@@ -13,9 +13,19 @@ export default defineContentScript({
 
         if (article) {
           const markdown = turndownService.turndown(article.content);
-          sendResponse({ markdown: markdown, title: article.title });
+          sendResponse({ 
+            markdown: markdown, 
+            title: article.title, 
+            content: article.textContent,
+            html: article.content 
+          });
         } else {
-          sendResponse({ markdown: '', title: document.title });
+          sendResponse({ 
+            markdown: '', 
+            title: document.title, 
+            content: document.body.textContent || '',
+            html: document.body.innerHTML || ''
+          });
         }
       } else if (request.action === 'extractLinks') {
         const links = Array.from(document.querySelectorAll('a[href]')).map((a) =>
