@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import './App.css';
 
-type Action = 'save' | 'keywords' | 'stats' | 'preview';
+type Action = 'save' | 'keywords' | 'stats' | 'preview' | 'summarize';
 type ExportFormat = 'markdown' | 'html';
 type ActiveTab = 'process' | 'crawl' | 'history';
 
@@ -82,11 +82,12 @@ function App() {
     setLoading(true);
     setStatus(`Performing action: ${action}...`);
     setResult('');
+    setContentStats(null);
+    setPreviewContent('');
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) {
         const response = await chrome.tabs.sendMessage(tab.id, { action: 'extractContent' });
-        if (chrome.runtime.lastError) throw new Error(chrome.runtime.lastError.message);
         
         const processResponse = await chrome.runtime.sendMessage({
           action: 'processContent',
@@ -98,7 +99,6 @@ function App() {
           exportFormat: exportFormat,
         });
 
-        if (chrome.runtime.lastError) throw new Error(chrome.runtime.lastError.message);
         if (processResponse?.result) {
           setResult(processResponse.result);
           setStatus('Action completed successfully!');
@@ -114,9 +114,10 @@ function App() {
           setStatus('Failed to process content.');
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error processing content:', error);
-      setStatus(`Error: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus(`Error: ${message}`);
     } finally {
       setLoading(false);
     }
@@ -133,12 +134,12 @@ function App() {
           depth: crawlDepth,
           stayOnDomain: stayOnDomain,
         });
-        if (chrome.runtime.lastError) throw new Error(chrome.runtime.lastError.message);
         // No need to set status here, the storage listener will do it
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error starting crawl:', error);
-      setStatus(`Error: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus(`Error: ${message}`);
     }
   };
 
@@ -176,6 +177,7 @@ function App() {
               <option value="preview">Preview Content</option>
               <option value="keywords">Extract Keywords</option>
               <option value="stats">Get Statistics</option>
+              <option value="summarize">Summarize</option>
             </select>
           </div>
           {(action === 'save' || action === 'preview') && (

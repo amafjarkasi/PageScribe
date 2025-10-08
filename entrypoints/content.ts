@@ -11,10 +11,10 @@ export default defineContentScript({
         const documentClone = document.cloneNode(true) as Document;
         const article = new Readability(documentClone).parse();
 
-        if (article) {
+        if (article && article.content) {
           const markdown = turndownService.turndown(article.content);
-          sendResponse({ 
-            markdown: markdown, 
+          sendResponse({
+            markdown: markdown,
             title: article.title, 
             content: article.textContent,
             html: article.content 

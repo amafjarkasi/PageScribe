@@ -43,6 +43,25 @@ function calculateContentStats(content: string): ContentStats {
   };
 }
 
+// Function to generate a simple summary
+function summarizeContent(content: string, sentenceCount = 3): string {
+  if (!content) {
+    return "Not enough content to summarize.";
+  }
+
+  // A simple sentence tokenizer that handles various endings.
+  const sentences = content.match(/[^.!?\n]+[.!?\n]+/g) || [];
+
+  if (sentences.length === 0) {
+    // Fallback for content without clear sentence endings
+    return content.length > 250 ? content.substring(0, 250) + '...' : content;
+  }
+
+  const summary = sentences.slice(0, sentenceCount).join(' ').trim();
+
+  return summary || "Could not generate a summary.";
+}
+
 interface CrawledData {
   url: string;
   title: string;
@@ -166,6 +185,11 @@ export default defineBackground(() => {
         }
         const result = `Content preview ready (${exportFormat.toUpperCase()} format)`;
         sendResponse({ result, preview: previewContent });
+
+      } else if (type === 'summarize') {
+        // Use the plain text content for summarization
+        const summary = summarizeContent(content);
+        sendResponse({ result: summary });
       }
     }
     else if (request.action === 'startCrawl') {
