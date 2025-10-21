@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import './App.css';
 
 type Action = 'save' | 'keywords' | 'stats' | 'preview' | 'summarize';
-type PdfAction = 'keywords' | 'summarize';
 type ExportFormat = 'markdown' | 'html';
 type ActiveTab = 'page' | 'pdf' | 'crawl' | 'history';
 type SummaryLength = 'short' | 'medium' | 'long';
@@ -100,30 +99,12 @@ function App() {
     setResult('');
     setContentStats(null);
     setPreviewContent('');
-
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.id) {
-        setStatus('Could not find active tab.');
-        setLoading(false);
-        return;
-      }
-      const response = await chrome.tabs.sendMessage(tab.id, { action: 'extractContent' });
-
-      let processResponse;
-      const textActions = ['summarize', 'keywords'];
-
-      if (textActions.includes(action)) {
-        processResponse = await chrome.runtime.sendMessage({
-          action: 'processText',
-          type: action,
-          content: response.content,
-          title: response.title,
-          summaryLength: summaryLength,
-          summaryFormat: summaryFormat,
-        });
-      } else {
-        processResponse = await chrome.runtime.sendMessage({
+      if (tab?.id) {
+        const response = await chrome.tabs.sendMessage(tab.id, { action: 'extractContent' });
+        
+        const processResponse = await chrome.runtime.sendMessage({
           action: 'processContent',
           type: action,
           title: response.title,
@@ -173,11 +154,17 @@ function App() {
           pdfData: base64Data,
         });
 
-        if (response?.text) {
-          setProcessedText(response.text);
-          setProcessedTitle(pdfFile.name);
-          setResult(response.text); // Show the extracted text for now
-          setStatus('PDF processed successfully. You can now perform actions on the extracted text below.');
+        if (processResponse?.result) {
+          setResult(processResponse.result);
+          setStatus('Action completed successfully!');
+          // Set content statistics if available
+          if (processResponse.stats) {
+            setContentStats(processResponse.stats);
+          }
+          // Set preview content if available
+          if (processResponse.preview) {
+            setPreviewContent(processResponse.preview);
+          }
         } else {
           setStatus(response?.error || 'Failed to process PDF.');
         }
@@ -188,43 +175,8 @@ function App() {
       } finally {
         setLoading(false);
       }
-    };
-    reader.onerror = () => {
-      setStatus('Failed to read the PDF file.');
-      setLoading(false);
-    };
-  };
-
-  const handlePdfAction = async () => {
-    if (!processedText) {
-      setStatus('No processed text available to perform action on.');
-      return;
-    }
-
-    setLoading(true);
-    setStatus(`Performing action: ${pdfAction}...`);
-    setResult('');
-    setContentStats(null);
-    setPreviewContent('');
-
-    try {
-      const response = await chrome.runtime.sendMessage({
-        action: 'processText',
-        type: pdfAction,
-        content: processedText,
-        title: processedTitle,
-        summaryLength: summaryLength,
-        summaryFormat: summaryFormat,
-      });
-
-      if (response?.result) {
-        setResult(response.result);
-        setStatus('Action completed successfully!');
-      } else {
-        setStatus(response?.error || 'Failed to process text.');
-      }
     } catch (error: unknown) {
-      console.error('Error performing PDF action:', error);
+      console.error('Error processing content:', error);
       const message = error instanceof Error ? error.message : String(error);
       setStatus(`Error: ${message}`);
     } finally {

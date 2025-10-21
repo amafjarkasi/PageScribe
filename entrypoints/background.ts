@@ -48,11 +48,7 @@ function calculateContentStats(content: string): ContentStats {
 }
 
 // Function to generate a simple summary
-function summarizeContent(
-  content: string,
-  length: SummaryLength = 'medium',
-  format: SummaryFormat = 'paragraph'
-): string {
+function summarizeContent(content: string, sentenceCount = 3): string {
   if (!content) {
     return "Not enough content to summarize.";
   }
@@ -65,28 +61,9 @@ function summarizeContent(
     return content.length > 250 ? content.substring(0, 250) + '...' : content;
   }
 
-  let sentenceCount: number;
-  switch (length) {
-    case 'short':
-      sentenceCount = 2;
-      break;
-    case 'long':
-      sentenceCount = 5;
-      break;
-    case 'medium':
-    default:
-      sentenceCount = 3;
-      break;
-  }
+  const summary = sentences.slice(0, sentenceCount).join(' ').trim();
 
-  const summarySentences = sentences.slice(0, sentenceCount);
-
-  if (format === 'bullets') {
-    return summarySentences.map(s => `• ${s.trim()}`).join('\n');
-  } else {
-    const summary = summarySentences.join(' ').trim();
-    return summary || "Could not generate a summary.";
-  }
+  return summary || "Could not generate a summary.";
 }
 
 interface CrawledData {
@@ -190,6 +167,26 @@ export default defineBackground(() => {
           chrome.storage.local.set({ history: [historyItem, ...res.history] });
         });
         sendResponse({ result });
+
+      } else if (type === 'stats') {
+        const stats = calculateContentStats(markdown);
+        const result = `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
+        sendResponse({ result, stats });
+
+      } else if (type === 'preview') {
+        let previewContent: string;
+        if (exportFormat === 'html') {
+          previewContent = html;
+        } else {
+          previewContent = markdown;
+        }
+        const result = `Content preview ready (${exportFormat.toUpperCase()} format)`;
+        sendResponse({ result, preview: previewContent });
+
+      } else if (type === 'summarize') {
+        // Use the plain text content for summarization
+        const summary = summarizeContent(content);
+        sendResponse({ result: summary });
       }
     } else if (request.action === 'startCrawl') {
       const { startUrl, depth, stayOnDomain } = request;
