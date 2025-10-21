@@ -3,7 +3,9 @@ import './App.css';
 
 type Action = 'save' | 'keywords' | 'stats' | 'preview' | 'summarize';
 type ExportFormat = 'markdown' | 'html';
-type ActiveTab = 'process' | 'crawl' | 'history';
+type ActiveTab = 'page' | 'pdf' | 'crawl' | 'history';
+type SummaryLength = 'short' | 'medium' | 'long';
+type SummaryFormat = 'paragraph' | 'bullets';
 
 interface HistoryItem {
   type: 'keywords';
@@ -26,6 +28,7 @@ const TabButton = ({ tab, activeTab, onClick, children }: { tab: ActiveTab, acti
 );
 
 const ProcessIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M4 20h2"/><path d="M6 14h12"/><path d="M18 14h2"/><path d="M4 14h2"/><path d="M12 8h9"/><path d="M4 8h2"/><path d="M6 4h12"/><path d="M18 4h2"/><path d="M4 4h2"/></svg>;
+const PdfIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>;
 const CrawlIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12h20"/><path d="M12 2v20"/><circle cx="12" cy="12" r="4"/></svg>;
 const HistoryIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>;
 const ThemeIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>;
@@ -39,11 +42,23 @@ function App() {
   const [crawlDepth, setCrawlDepth] = useState(1);
   const [stayOnDomain, setStayOnDomain] = useState(true);
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [activeTab, setActiveTab] = useState<ActiveTab>('process');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('page');
   const [contentStats, setContentStats] = useState<ContentStats | null>(null);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('markdown');
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [previewContent, setPreviewContent] = useState<string>('');
+  const [summaryLength, setSummaryLength] = useState<SummaryLength>('medium');
+  const [summaryFormat, setSummaryFormat] = useState<SummaryFormat>('paragraph');
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [processedText, setProcessedText] = useState<string>('');
+  const [processedTitle, setProcessedTitle] = useState<string>('');
+  const [pdfAction, setPdfAction] = useState<PdfAction>('summarize');
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setPdfFile(e.target.files[0]);
+    }
+  };
 
   useEffect(() => {
     // Listener for history and crawling state changes
@@ -78,7 +93,7 @@ function App() {
     };
   }, []);
 
-  const processContent = async () => {
+  const handlePageAction = async () => {
     setLoading(true);
     setStatus(`Performing action: ${action}...`);
     setResult('');
@@ -92,11 +107,51 @@ function App() {
         const processResponse = await chrome.runtime.sendMessage({
           action: 'processContent',
           type: action,
-          markdown: response.markdown,
-          content: response.content, // For keyword extraction
           title: response.title,
-          html: response.html, // Add HTML content for HTML export
+          markdown: response.markdown,
+          html: response.html,
           exportFormat: exportFormat,
+        });
+      }
+
+      if (processResponse?.result) {
+        setResult(processResponse.result);
+        setStatus('Action completed successfully!');
+        if (processResponse.stats) setContentStats(processResponse.stats);
+        if (processResponse.preview) setPreviewContent(processResponse.preview);
+      } else {
+        setStatus('Failed to process content.');
+      }
+    } catch (error: unknown) {
+      console.error('Error processing page action:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus(`Error: ${message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePdfUpload = async () => {
+    if (!pdfFile) {
+      setStatus('Please select a PDF file.');
+      return;
+    }
+
+    setLoading(true);
+    setStatus('Processing PDF...');
+    setResult('');
+    setContentStats(null);
+    setPreviewContent('');
+    setProcessedText(''); // Clear previous PDF text
+
+    const reader = new FileReader();
+    reader.readAsDataURL(pdfFile);
+    reader.onload = async () => {
+      try {
+        const base64Data = reader.result as string;
+        const response = await chrome.runtime.sendMessage({
+          action: 'parsePdf',
+          pdfData: base64Data,
         });
 
         if (processResponse?.result) {
@@ -111,8 +166,14 @@ function App() {
             setPreviewContent(processResponse.preview);
           }
         } else {
-          setStatus('Failed to process content.');
+          setStatus(response?.error || 'Failed to process PDF.');
         }
+      } catch (error: unknown) {
+        console.error('Error processing PDF:', error);
+        const message = error instanceof Error ? error.message : String(error);
+        setStatus(`Error: ${message}`);
+      } finally {
+        setLoading(false);
       }
     } catch (error: unknown) {
       console.error('Error processing content:', error);
@@ -164,12 +225,13 @@ function App() {
         </div>
       </header>
       <nav>
-        <TabButton tab="process" activeTab={activeTab} onClick={setActiveTab}><ProcessIcon /><span>Process</span></TabButton>
+        <TabButton tab="page" activeTab={activeTab} onClick={setActiveTab}><ProcessIcon /><span>Process Page</span></TabButton>
+        <TabButton tab="pdf" activeTab={activeTab} onClick={setActiveTab}><PdfIcon /><span>Process PDF</span></TabButton>
         <TabButton tab="crawl" activeTab={activeTab} onClick={setActiveTab}><CrawlIcon /><span>Crawl</span></TabButton>
         <TabButton tab="history" activeTab={activeTab} onClick={setActiveTab}><HistoryIcon /><span>History</span></TabButton>
       </nav>
       <main>
-        <div className={`tab-content ${activeTab === 'process' ? 'active' : ''}`}>
+        <div className={`tab-content ${activeTab === 'page' ? 'active' : ''}`}>
           <div className="form-group">
             <label htmlFor="action-select">Action</label>
             <select id="action-select" value={action} onChange={(e) => setAction(e.target.value as Action)}>
@@ -180,6 +242,25 @@ function App() {
               <option value="summarize">Summarize</option>
             </select>
           </div>
+          {action === 'summarize' && (
+            <>
+              <div className="form-group">
+                <label htmlFor="summary-length">Summary Length</label>
+                <select id="summary-length" value={summaryLength} onChange={(e) => setSummaryLength(e.target.value as SummaryLength)}>
+                  <option value="short">Short</option>
+                  <option value="medium">Medium</option>
+                  <option value="long">Long</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label htmlFor="summary-format">Summary Format</label>
+                <select id="summary-format" value={summaryFormat} onChange={(e) => setSummaryFormat(e.target.value as SummaryFormat)}>
+                  <option value="paragraph">Paragraph</option>
+                  <option value="bullets">Bullet Points</option>
+                </select>
+              </div>
+            </>
+          )}
           {(action === 'save' || action === 'preview') && (
             <div className="form-group">
               <label htmlFor="export-format">Export Format</label>
@@ -189,52 +270,106 @@ function App() {
               </select>
             </div>
           )}
-          <button className="primary-button" onClick={processContent} disabled={loading || isCrawling}>
+          <button className="primary-button" onClick={handlePageAction} disabled={loading || isCrawling}>
             {loading ? 'Processing...' : 'Go'}
           </button>
-          {status && <p className="status">{status}</p>}
-          {result && (
-            <div className="result-box">
-              <h4>Result:</h4>
-              <p>{result}</p>
-            </div>
-          )}
-          {contentStats && (
-            <div className="stats-box">
-              <h4>Content Statistics:</h4>
-              <div className="stats-grid">
-                <div className="stat-item">
-                  <span className="stat-label">Words:</span>
-                  <span className="stat-value">{contentStats.wordCount.toLocaleString()}</span>
-                </div>
-                <div className="stat-item">
-                  <span className="stat-label">Characters:</span>
-                  <span className="stat-value">{contentStats.charCount.toLocaleString()}</span>
-                </div>
-                <div className="stat-item">
-                  <span className="stat-label">Reading Time:</span>
-                  <span className="stat-value">{contentStats.readingTime} min</span>
-                </div>
-                <div className="stat-item">
-                  <span className="stat-label">Paragraphs:</span>
-                  <span className="stat-value">{contentStats.paragraphs}</span>
-                </div>
+        </div>
+
+        <div className={`tab-content ${activeTab === 'pdf' ? 'active' : ''}`}>
+          {!processedText ? (
+            <>
+              <div className="form-group">
+                <label htmlFor="pdf-upload">Upload PDF</label>
+                <input type="file" id="pdf-upload" accept="application/pdf" onChange={handleFileChange} />
               </div>
-            </div>
-          )}
-          {previewContent && (
-            <div className="preview-box">
-              <h4>Content Preview:</h4>
-              <div className="preview-content">
-                {exportFormat === 'html' ? (
-                  <div dangerouslySetInnerHTML={{ __html: previewContent }} />
-                ) : (
-                  <pre>{previewContent}</pre>
-                )}
+              <button className="primary-button" onClick={handlePdfUpload} disabled={loading || !pdfFile}>
+                {loading ? 'Processing...' : 'Process PDF'}
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="form-group">
+                <label htmlFor="pdf-action-select">Action</label>
+                <select id="pdf-action-select" value={pdfAction} onChange={(e) => setPdfAction(e.target.value as PdfAction)}>
+                  <option value="summarize">Summarize</option>
+                  <option value="keywords">Extract Keywords</option>
+                </select>
               </div>
-            </div>
+              {pdfAction === 'summarize' && (
+                <>
+                  <div className="form-group">
+                    <label htmlFor="summary-length-pdf">Summary Length</label>
+                    <select id="summary-length-pdf" value={summaryLength} onChange={(e) => setSummaryLength(e.target.value as SummaryLength)}>
+                      <option value="short">Short</option>
+                      <option value="medium">Medium</option>
+                      <option value="long">Long</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="summary-format-pdf">Summary Format</label>
+                    <select id="summary-format-pdf" value={summaryFormat} onChange={(e) => setSummaryFormat(e.target.value as SummaryFormat)}>
+                      <option value="paragraph">Paragraph</option>
+                      <option value="bullets">Bullet Points</option>
+                    </select>
+                  </div>
+                </>
+              )}
+              <button className="primary-button" onClick={handlePdfAction} disabled={loading}>
+                {loading ? 'Processing...' : 'Go'}
+              </button>
+              <button className="secondary-button" onClick={() => setProcessedText('')} style={{marginTop: '10px'}}>
+                Process another PDF
+              </button>
+            </>
           )}
         </div>
+
+        {(activeTab === 'page' || activeTab === 'pdf') && (
+          <div className="results-container">
+            {status && <p className="status">{status}</p>}
+            {result && (
+              <div className="result-box">
+                <h4>Result:</h4>
+                <p>{result}</p>
+              </div>
+            )}
+            {contentStats && (
+              <div className="stats-box">
+                <h4>Content Statistics:</h4>
+                <div className="stats-grid">
+                  <div className="stat-item">
+                    <span className="stat-label">Words:</span>
+                    <span className="stat-value">{contentStats.wordCount.toLocaleString()}</span>
+                  </div>
+                  <div className="stat-item">
+                    <span className="stat-label">Characters:</span>
+                    <span className="stat-value">{contentStats.charCount.toLocaleString()}</span>
+                  </div>
+                  <div className="stat-item">
+                    <span className="stat-label">Reading Time:</span>
+                    <span className="stat-value">{contentStats.readingTime} min</span>
+                  </div>
+                  <div className="stat-item">
+                    <span className="stat-label">Paragraphs:</span>
+                    <span className="stat-value">{contentStats.paragraphs}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            {previewContent && (
+              <div className="preview-box">
+                <h4>Content Preview:</h4>
+                <div className="preview-content">
+                  {exportFormat === 'html' ? (
+                    <div dangerouslySetInnerHTML={{ __html: previewContent }} />
+                  ) : (
+                    <pre>{previewContent}</pre>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className={`tab-content ${activeTab === 'crawl' ? 'active' : ''}`}>
           <div className="form-group">

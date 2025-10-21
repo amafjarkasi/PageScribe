@@ -1,4 +1,8 @@
 import keyword_extractor from 'keyword-extractor';
+import { pdf } from 'pdf-parse';
+
+type SummaryLength = 'short' | 'medium' | 'long';
+type SummaryFormat = 'paragraph' | 'bullets';
 
 interface HistoryItem {
   type: 'keywords';
@@ -96,9 +100,9 @@ function sanitizeFilename(filename: string): string {
 }
 
 export default defineBackground(() => {
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
     if (request.action === 'processContent') {
-      const { type, markdown, title, content, html, exportFormat } = request;
+      const { type, markdown, title, html, exportFormat } = request;
 
       if (type === 'save') {
         const safeTitle = sanitizeFilename(title);
@@ -107,30 +111,7 @@ export default defineBackground(() => {
         let fileExtension: string;
 
         if (exportFormat === 'html') {
-          // Create a complete HTML document
-          fileContent = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${title}</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
-        h1, h2, h3, h4, h5, h6 { margin-top: 24px; margin-bottom: 16px; font-weight: 600; line-height: 1.25; }
-        h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
-        h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
-        p { margin-bottom: 16px; }
-        img { max-width: 100%; height: auto; }
-        pre { background-color: #f6f8fa; border-radius: 6px; padding: 16px; overflow: auto; }
-        code { background-color: #f6f8fa; border-radius: 3px; padding: 0.2em 0.4em; }
-        blockquote { border-left: 4px solid #dfe2e5; padding-left: 16px; margin-left: 0; color: #6a737d; }
-    </style>
-</head>
-<body>
-    <h1>${title}</h1>
-    ${html}
-</body>
-</html>`;
+          fileContent = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${title}</title></head><body><h1>${title}</h1>${html}</body></html>`;
           mimeType = 'text/html';
           fileExtension = 'html';
         } else {
@@ -151,6 +132,28 @@ export default defineBackground(() => {
         reader.readAsDataURL(blob);
         sendResponse({ result: `Content saved as ${fileExtension.toUpperCase()} file.` });
 
+      } else if (type === 'stats') {
+        const stats = calculateContentStats(markdown);
+        sendResponse({ result: `Word count: ${stats.wordCount}`, stats });
+
+      } else if (type === 'preview') {
+        const previewContent = exportFormat === 'html' ? html : markdown;
+        sendResponse({ result: 'Preview ready', preview: previewContent });
+      }
+    } else if (request.action === 'parsePdf') {
+      try {
+        const buffer = Buffer.from(request.pdfData.split(',')[1], 'base64');
+        const data = await pdf(buffer);
+        sendResponse({ text: data.text });
+      } catch (error: any) {
+        console.error('Error parsing PDF:', error);
+        sendResponse({ error: `Failed to parse PDF: ${error.message}` });
+      }
+    } else if (request.action === 'processText') {
+      const { type, content, title, summaryLength, summaryFormat } = request;
+      if (type === 'summarize') {
+        const summary = summarizeContent(content, summaryLength, summaryFormat);
+        sendResponse({ result: summary });
       } else if (type === 'keywords') {
         const keywords = keyword_extractor.extract(content, {
           language: 'english',
@@ -159,15 +162,9 @@ export default defineBackground(() => {
           remove_duplicates: true,
         });
         const result = keywords.join(', ');
-        const historyItem: HistoryItem = {
-          type: 'keywords',
-          title,
-          result,
-          timestamp: Date.now(),
-        };
+        const historyItem: HistoryItem = { type: 'keywords', title, result, timestamp: Date.now() };
         chrome.storage.local.get({ history: [] }, (res) => {
-          const newHistory = [historyItem, ...res.history];
-          chrome.storage.local.set({ history: newHistory });
+          chrome.storage.local.set({ history: [historyItem, ...res.history] });
         });
         sendResponse({ result });
 
@@ -191,8 +188,7 @@ export default defineBackground(() => {
         const summary = summarizeContent(content);
         sendResponse({ result: summary });
       }
-    }
-    else if (request.action === 'startCrawl') {
+    } else if (request.action === 'startCrawl') {
       const { startUrl, depth, stayOnDomain } = request;
       crawl(startUrl, depth, stayOnDomain);
       sendResponse({ result: 'Crawl started.' });

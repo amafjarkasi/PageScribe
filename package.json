@@ -18,6 +18,7 @@
     "@mozilla/readability": "^0.6.0",
     "@types/turndown": "^5.0.5",
     "keyword-extractor": "^0.0.28",
+    "pdf-parse": "^2.2.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "turndown": "^7.2.0"
