@@ -99,6 +99,17 @@ function sanitizeFilename(filename: string): string {
   return filename.replace(/[\\/:":*?<>|]/g, '_');
 }
 
+function escapeHTML(str: string): string {
+  const table: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  };
+  return str.replace(/[&<>"']/g, (tag) => table[tag] || tag);
+}
+
 export default defineBackground(() => {
   chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
     if (request.action === 'processContent') {
@@ -111,7 +122,8 @@ export default defineBackground(() => {
         let fileExtension: string;
 
         if (exportFormat === 'html') {
-          fileContent = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${title}</title></head><body><h1>${title}</h1>${html}</body></html>`;
+          const escapedTitle = escapeHTML(title);
+          fileContent = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${escapedTitle}</title></head><body><h1>${escapedTitle}</h1>${html}</body></html>`;
           mimeType = 'text/html';
           fileExtension = 'html';
         } else {
