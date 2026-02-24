@@ -24,18 +24,29 @@ interface ContentStats {
   paragraphs: number;
 }
 
+// Regular expressions moved to module scope for performance
+const MARKDOWN_SYMBOLS_REGEX = /[#*_`~\[\]()]/g;
+const IMAGES_REGEX = /!\[.*?\]\(.*?\)/g;
+const LINKS_REGEX = /\[.*?\]\(.*?\)/g;
+const CODE_BLOCKS_REGEX = /```[\s\S]*?```/g;
+const INLINE_CODE_REGEX = /`[^`]*`/g;
+const WORDS_SPLIT_REGEX = /\s+/;
+const PARAGRAPHS_SPLIT_REGEX = /\n\s*\n/;
+const SENTENCE_TOKENIZER_REGEX = /[^.!?\n]+[.!?\n]+/g;
+const FILENAME_SANITIZE_REGEX = /[\\/:":*?<>|]/g;
+
 // Function to calculate content statistics
 function calculateContentStats(content: string): ContentStats {
   // Remove markdown syntax for more accurate counting
   const plainText = content
-    .replace(/[#*_`~\[\]()]/g, '') // Remove markdown symbols
-    .replace(/!\[.*?\]\(.*?\)/g, '') // Remove images
-    .replace(/\[.*?\]\(.*?\)/g, '') // Remove links
-    .replace(/```[\s\S]*?```/g, '') // Remove code blocks
-    .replace(/`[^`]*`/g, '') // Remove inline code
+    .replace(MARKDOWN_SYMBOLS_REGEX, '') // Remove markdown symbols
+    .replace(IMAGES_REGEX, '') // Remove images
+    .replace(LINKS_REGEX, '') // Remove links
+    .replace(CODE_BLOCKS_REGEX, '') // Remove code blocks
+    .replace(INLINE_CODE_REGEX, '') // Remove inline code
     .trim();
 
-  const words = plainText.split(/\s+/).filter(word => word.length > 0);
+  const words = plainText.split(WORDS_SPLIT_REGEX).filter(word => word.length > 0);
   const wordCount = words.length;
   const charCount = plainText.length;
   
@@ -43,7 +54,7 @@ function calculateContentStats(content: string): ContentStats {
   const readingTime = Math.ceil(wordCount / 225);
   
   // Count paragraphs (split by double newlines)
-  const paragraphs = content.split(/\n\s*\n/).filter(p => p.trim().length > 0).length;
+  const paragraphs = content.split(PARAGRAPHS_SPLIT_REGEX).filter(p => p.trim().length > 0).length;
 
   return {
     wordCount,
@@ -76,9 +87,8 @@ const STOP_WORDS = new Set([
 function summarizeContent(content: string, sentenceCount = 3): string {
   if (!content) return "Not enough content to summarize.";
 
-  // 1. Split into sentences (handling common delimiters)
-  // This regex looks for sentence endings followed by whitespace or end of string
-  const sentences = content.match(/[^.!?\n]+[.!?\n]+/g) || [];
+  // A simple sentence tokenizer that handles various endings.
+  const sentences = content.match(SENTENCE_TOKENIZER_REGEX) || [];
 
   // Fallback if regex fails to split properly (e.g. no punctuation)
   if (sentences.length === 0) {
@@ -157,7 +167,7 @@ function sendMessageToTab(tabId: number, message: any): Promise<any> {
 }
 
 function sanitizeFilename(filename: string): string {
-  return filename.replace(/[\\/:":*?<>|]/g, '_');
+  return filename.replace(FILENAME_SANITIZE_REGEX, '_');
 }
 
 export default defineBackground(() => {
