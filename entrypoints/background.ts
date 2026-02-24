@@ -100,9 +100,9 @@ export default defineBackground(() => {
         sendResponse({ error: `Failed to parse PDF: ${error.message}` });
       }
     } else if (request.action === 'processText') {
-      const { type, content, title, summaryLength, summaryFormat } = request;
+      const { type, content, title, summaryLength } = request;
       if (type === 'summarize') {
-        const summary = summarizeContent(content, summaryLength, summaryFormat);
+        const summary = summarizeContent(content, summaryLength);
         sendResponse({ result: summary });
       } else if (type === 'keywords') {
         const keywords = keyword_extractor.extract(content, {
@@ -119,24 +119,20 @@ export default defineBackground(() => {
         sendResponse({ result });
 
       } else if (type === 'stats') {
-        const stats = calculateContentStats(markdown);
+        const stats = calculateContentStats(content);
         const result = `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
         sendResponse({ result, stats });
 
       } else if (type === 'preview') {
+        const { exportFormat, html, markdown } = request;
         let previewContent: string;
         if (exportFormat === 'html') {
           previewContent = html;
         } else {
           previewContent = markdown;
         }
-        const result = `Content preview ready (${exportFormat.toUpperCase()} format)`;
+        const result = `Content preview ready (${(exportFormat || 'markdown').toUpperCase()} format)`;
         sendResponse({ result, preview: previewContent });
-
-      } else if (type === 'summarize') {
-        // Use the plain text content for summarization
-        const summary = summarizeContent(content);
-        sendResponse({ result: summary });
       }
     } else if (request.action === 'startCrawl') {
       const { startUrl, depth, stayOnDomain } = request;
