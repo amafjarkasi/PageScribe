@@ -25,7 +25,7 @@ interface ContentStats {
 }
 
 // Function to calculate content statistics
-function calculateContentStats(content: string): ContentStats {
+export function calculateContentStats(content: string): ContentStats {
   // Remove markdown syntax for more accurate counting
   const plainText = content
     .replace(/[#*_`~\[\]()]/g, '') // Remove markdown symbols
@@ -73,7 +73,7 @@ const STOP_WORDS = new Set([
 ]);
 
 // Function to generate a smarter summary using sentence scoring
-function summarizeContent(content: string, sentenceCount = 3): string {
+export function summarizeContent(content: string, sentenceCount = 3): string {
   if (!content) return "Not enough content to summarize.";
 
   // 1. Split into sentences (handling common delimiters)
