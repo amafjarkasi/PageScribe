@@ -1,5 +1,11 @@
 import keyword_extractor from 'keyword-extractor';
-import { pdf } from 'pdf-parse';
+// We use dynamic import for pdfjs-dist to avoid build-time execution issues (DOMMatrix undefined)
+// import * as pdfjsLib from 'pdfjs-dist';
+
+// Worker URL import should be fine as it returns a string
+// @ts-ignore
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
+
 
 type SummaryLength = 'short' | 'medium' | 'long';
 type SummaryFormat = 'paragraph' | 'bullets';
@@ -47,23 +53,78 @@ function calculateContentStats(content: string): ContentStats {
   };
 }
 
-// Function to generate a simple summary
-function summarizeContent(content: string, sentenceCount = 3): string {
-  if (!content) {
-    return "Not enough content to summarize.";
-  }
+// Expanded stop words list for better summarization
+const STOP_WORDS = new Set([
+  'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are', 'as', 'at',
+  'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'by',
+  'can', 'did', 'do', 'does', 'doing', 'don', 'down', 'during',
+  'each', 'few', 'for', 'from', 'further',
+  'had', 'has', 'have', 'having', 'he', 'her', 'here', 'hers', 'herself', 'him', 'himself', 'his', 'how',
+  'i', 'if', 'in', 'into', 'is', 'it', 'its', 'itself',
+  'just', 'me', 'more', 'most', 'my', 'myself',
+  'no', 'nor', 'not', 'now',
+  'of', 'off', 'on', 'once', 'only', 'or', 'other', 'our', 'ours', 'ourselves', 'out', 'over', 'own',
+  's', 'same', 'she', 'should', 'so', 'some', 'such',
+  't', 'than', 'that', 'the', 'their', 'theirs', 'them', 'themselves', 'then', 'there', 'these', 'they', 'this', 'those', 'through', 'to', 'too',
+  'under', 'until', 'up',
+  'very',
+  'was', 'we', 'were', 'what', 'when', 'where', 'which', 'while', 'who', 'whom', 'why', 'will', 'with',
+  'you', 'your', 'yours', 'yourself', 'yourselves'
+]);
 
-  // A simple sentence tokenizer that handles various endings.
+// Function to generate a smarter summary using sentence scoring
+function summarizeContent(content: string, sentenceCount = 3): string {
+  if (!content) return "Not enough content to summarize.";
+
+  // 1. Split into sentences (handling common delimiters)
+  // This regex looks for sentence endings followed by whitespace or end of string
   const sentences = content.match(/[^.!?\n]+[.!?\n]+/g) || [];
 
+  // Fallback if regex fails to split properly (e.g. no punctuation)
   if (sentences.length === 0) {
-    // Fallback for content without clear sentence endings
-    return content.length > 250 ? content.substring(0, 250) + '...' : content;
+     return content.length > 300 ? content.substring(0, 300) + '...' : content;
   }
 
-  const summary = sentences.slice(0, sentenceCount).join(' ').trim();
+  if (sentences.length <= sentenceCount) {
+    return content;
+  }
 
-  return summary || "Could not generate a summary.";
+  // 2. Tokenize and calculate word frequencies
+  const wordFreq: Record<string, number> = {};
+  const words = content.toLowerCase().match(/\b\w+\b/g) || [];
+
+  words.forEach(word => {
+    if (!STOP_WORDS.has(word) && word.length > 2) {
+      wordFreq[word] = (wordFreq[word] || 0) + 1;
+    }
+  });
+
+  // 3. Score sentences based on word importance
+  const sentenceScores = sentences.map((sentence, index) => {
+    const sentenceWords = sentence.toLowerCase().match(/\b\w+\b/g) || [];
+    let score = 0;
+    sentenceWords.forEach(word => {
+      if (wordFreq[word]) {
+        score += wordFreq[word];
+      }
+    });
+
+    // Normalize by length (square root) to favor informative but not excessively long sentences
+    if (sentenceWords.length > 0) {
+        score = score / Math.pow(sentenceWords.length, 0.5);
+    }
+
+    return { sentence, score, index };
+  });
+
+  // 4. Sort by score (descending) and pick top N
+  sentenceScores.sort((a, b) => b.score - a.score);
+  const topSentences = sentenceScores.slice(0, sentenceCount);
+
+  // 5. Reorder by original index to maintain flow
+  topSentences.sort((a, b) => a.index - b.index);
+
+  return topSentences.map(s => s.sentence.trim()).join(' ');
 }
 
 interface CrawledData {
@@ -100,100 +161,125 @@ function sanitizeFilename(filename: string): string {
 }
 
 export default defineBackground(() => {
-  chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
-    if (request.action === 'processContent') {
-      const { type, markdown, title, html, exportFormat } = request;
-
-      if (type === 'save') {
-        const safeTitle = sanitizeFilename(title);
-        let fileContent: string;
-        let mimeType: string;
-        let fileExtension: string;
-
-        if (exportFormat === 'html') {
-          fileContent = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${title}</title></head><body><h1>${title}</h1>${html}</body></html>`;
-          mimeType = 'text/html';
-          fileExtension = 'html';
-        } else {
-          fileContent = markdown;
-          mimeType = 'text/markdown';
-          fileExtension = 'md';
-        }
-
-        const blob = new Blob([fileContent], { type: mimeType });
-        const reader = new FileReader();
-        reader.onload = () => {
-          chrome.downloads.download({
-            url: reader.result as string,
-            filename: `${safeTitle}.${fileExtension}`,
-            saveAs: true,
-          });
-        };
-        reader.readAsDataURL(blob);
-        sendResponse({ result: `Content saved as ${fileExtension.toUpperCase()} file.` });
-
-      } else if (type === 'stats') {
-        const stats = calculateContentStats(markdown);
-        sendResponse({ result: `Word count: ${stats.wordCount}`, stats });
-
-      } else if (type === 'preview') {
-        const previewContent = exportFormat === 'html' ? html : markdown;
-        sendResponse({ result: 'Preview ready', preview: previewContent });
-      }
-    } else if (request.action === 'parsePdf') {
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    // Wrap async logic to use sendResponse asynchronously
+    (async () => {
       try {
-        const buffer = Buffer.from(request.pdfData.split(',')[1], 'base64');
-        const data = await pdf(buffer);
-        sendResponse({ text: data.text });
-      } catch (error: any) {
-        console.error('Error parsing PDF:', error);
-        sendResponse({ error: `Failed to parse PDF: ${error.message}` });
-      }
-    } else if (request.action === 'processText') {
-      const { type, content, title, summaryLength, summaryFormat } = request;
-      if (type === 'summarize') {
-        const summary = summarizeContent(content, summaryLength, summaryFormat);
-        sendResponse({ result: summary });
-      } else if (type === 'keywords') {
-        const keywords = keyword_extractor.extract(content, {
-          language: 'english',
-          remove_digits: true,
-          return_changed_case: true,
-          remove_duplicates: true,
-        });
-        const result = keywords.join(', ');
-        const historyItem: HistoryItem = { type: 'keywords', title, result, timestamp: Date.now() };
-        chrome.storage.local.get({ history: [] }, (res) => {
-          chrome.storage.local.set({ history: [historyItem, ...res.history] });
-        });
-        sendResponse({ result });
+        if (request.action === 'processContent') {
+          const { type, markdown, title, html, exportFormat } = request;
 
-      } else if (type === 'stats') {
-        const stats = calculateContentStats(markdown);
-        const result = `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
-        sendResponse({ result, stats });
+          if (type === 'save') {
+            const safeTitle = sanitizeFilename(title);
+            let fileContent: string;
+            let mimeType: string;
+            let fileExtension: string;
 
-      } else if (type === 'preview') {
-        let previewContent: string;
-        if (exportFormat === 'html') {
-          previewContent = html;
-        } else {
-          previewContent = markdown;
+            if (exportFormat === 'html') {
+              fileContent = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${title}</title></head><body><h1>${title}</h1>${html}</body></html>`;
+              mimeType = 'text/html';
+              fileExtension = 'html';
+            } else {
+              fileContent = markdown;
+              mimeType = 'text/markdown';
+              fileExtension = 'md';
+            }
+
+            const blob = new Blob([fileContent], { type: mimeType });
+            const reader = new FileReader();
+            reader.onload = () => {
+              chrome.downloads.download({
+                url: reader.result as string,
+                filename: `${safeTitle}.${fileExtension}`,
+                saveAs: true,
+              });
+            };
+            reader.readAsDataURL(blob);
+            sendResponse({ result: `Content saved as ${fileExtension.toUpperCase()} file.` });
+
+          } else if (type === 'stats') {
+            const stats = calculateContentStats(markdown);
+            sendResponse({ result: `Word count: ${stats.wordCount}`, stats });
+
+          } else if (type === 'preview') {
+            const previewContent = exportFormat === 'html' ? html : markdown;
+            sendResponse({ result: 'Preview ready', preview: previewContent });
+          }
+        } else if (request.action === 'parsePdf') {
+          try {
+            // Dynamic import for pdfjs-dist
+            const pdfjsLib = await import('pdfjs-dist');
+            // Set worker source
+            pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
+            // pdfjs-dist usage
+            const base64Data = request.pdfData.split(',')[1];
+            const binaryString = atob(base64Data);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+
+            const loadingTask = pdfjsLib.getDocument({ data: bytes });
+            const pdfDocument = await loadingTask.promise;
+
+            let fullText = '';
+            for (let i = 1; i <= pdfDocument.numPages; i++) {
+                const page = await pdfDocument.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map((item: any) => item.str).join(' ');
+                fullText += pageText + '\n\n';
+            }
+
+            sendResponse({ text: fullText });
+          } catch (error: any) {
+            console.error('Error parsing PDF:', error);
+            sendResponse({ error: `Failed to parse PDF: ${error.message}` });
+          }
+        } else if (request.action === 'processText') {
+          const { type, content, title, summaryLength, summaryFormat } = request;
+          if (type === 'summarize') {
+            // Adjust sentence count based on summaryLength
+            let count = 3;
+            if (summaryLength === 'short') count = 2;
+            if (summaryLength === 'long') count = 7;
+
+            const summary = summarizeContent(content, count);
+            sendResponse({ result: summary });
+          } else if (type === 'keywords') {
+            const keywords = keyword_extractor.extract(content, {
+              language: 'english',
+              remove_digits: true,
+              return_changed_case: true,
+              remove_duplicates: true,
+            });
+            const result = keywords.join(', ');
+            const historyItem: HistoryItem = { type: 'keywords', title, result, timestamp: Date.now() };
+            chrome.storage.local.get({ history: [] }, (res) => {
+              const history = (res.history as HistoryItem[]) || []; chrome.storage.local.set({ history: [historyItem, ...history] });
+            });
+            sendResponse({ result });
+
+          } else if (type === 'stats') {
+            const stats = calculateContentStats(content); // Use content for text stats
+            const result = `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
+            sendResponse({ result, stats });
+
+          } else if (type === 'preview') {
+            // For processText, preview just returns the text
+            sendResponse({ result: 'Preview ready', preview: content });
+          }
+        } else if (request.action === 'startCrawl') {
+          const { startUrl, depth, stayOnDomain } = request;
+          crawl(startUrl, depth, stayOnDomain);
+          sendResponse({ result: 'Crawl started.' });
         }
-        const result = `Content preview ready (${exportFormat.toUpperCase()} format)`;
-        sendResponse({ result, preview: previewContent });
-
-      } else if (type === 'summarize') {
-        // Use the plain text content for summarization
-        const summary = summarizeContent(content);
-        sendResponse({ result: summary });
+      } catch (e) {
+        console.error("Background error:", e);
+        sendResponse({ error: "An unexpected error occurred." });
       }
-    } else if (request.action === 'startCrawl') {
-      const { startUrl, depth, stayOnDomain } = request;
-      crawl(startUrl, depth, stayOnDomain);
-      sendResponse({ result: 'Crawl started.' });
-    }
-    return true;
+    })();
+    return true; // Keep the message channel open for async response
   });
 });
 
