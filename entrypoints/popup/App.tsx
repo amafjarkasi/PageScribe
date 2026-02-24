@@ -52,7 +52,7 @@ function App() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [processedText, setProcessedText] = useState<string>('');
   const [processedTitle, setProcessedTitle] = useState<string>('');
-  const [pdfAction, setPdfAction] = useState<PdfAction>('summarize');
+  const [pdfAction, setPdfAction] = useState<Action>('summarize');
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -142,7 +142,7 @@ function App() {
     setResult('');
     setContentStats(null);
     setPreviewContent('');
-    setProcessedText(''); // Clear previous PDF text
+    setProcessedText('');
 
     const reader = new FileReader();
     reader.readAsDataURL(pdfFile);
@@ -154,17 +154,10 @@ function App() {
           pdfData: base64Data,
         });
 
-        if (processResponse?.result) {
-          setResult(processResponse.result);
-          setStatus('Action completed successfully!');
-          // Set content statistics if available
-          if (processResponse.stats) {
-            setContentStats(processResponse.stats);
-          }
-          // Set preview content if available
-          if (processResponse.preview) {
-            setPreviewContent(processResponse.preview);
-          }
+        if (response?.text) {
+          setProcessedText(response.text);
+          setProcessedTitle(pdfFile.name.replace(/\.pdf$/i, ''));
+          setStatus('PDF parsed successfully! Choose an action.');
         } else {
           setStatus(response?.error || 'Failed to process PDF.');
         }
@@ -175,8 +168,38 @@ function App() {
       } finally {
         setLoading(false);
       }
+    };
+  };
+
+  const handlePdfAction = async () => {
+    if (!processedText) return;
+
+    setLoading(true);
+    setStatus(`Performing action: ${pdfAction}...`);
+    setResult('');
+    setContentStats(null);
+    setPreviewContent('');
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'processText',
+        type: pdfAction,
+        content: processedText,
+        title: processedTitle,
+        summaryLength: summaryLength,
+        summaryFormat: summaryFormat,
+      });
+
+      if (response?.result) {
+        setResult(response.result);
+        setStatus('Action completed successfully!');
+        if (response.stats) setContentStats(response.stats);
+        if (response.preview) setPreviewContent(response.preview);
+      } else {
+        setStatus('Failed to process content.');
+      }
     } catch (error: unknown) {
-      console.error('Error processing content:', error);
+      console.error('Error processing PDF action:', error);
       const message = error instanceof Error ? error.message : String(error);
       setStatus(`Error: ${message}`);
     } finally {
