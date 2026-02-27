@@ -1,3 +1,4 @@
+import { defineBackground } from 'wxt/sandbox';
 import keyword_extractor from 'keyword-extractor';
 // We use dynamic import for pdfjs-dist to avoid build-time execution issues (DOMMatrix undefined)
 // import * as pdfjsLib from 'pdfjs-dist';
@@ -34,6 +35,7 @@ const WORDS_SPLIT_REGEX = /\s+/;
 const PARAGRAPHS_SPLIT_REGEX = /\n\s*\n/;
 const SENTENCE_TOKENIZER_REGEX = /[^.!?\n]+[.!?\n]+/g;
 const FILENAME_SANITIZE_REGEX = /[\\/:":*?<>|]/g;
+const WORD_REGEX = /\b\w+\b/g;
 
 // Function to calculate content statistics
 function calculateContentStats(content: string): ContentStats {
@@ -84,7 +86,7 @@ const STOP_WORDS = new Set([
 ]);
 
 // Function to generate a smarter summary using sentence scoring
-function summarizeContent(content: string, sentenceCount = 3): string {
+export function summarizeContent(content: string, sentenceCount = 3): string {
   if (!content) return "Not enough content to summarize.";
 
   // A simple sentence tokenizer that handles various endings.
@@ -101,7 +103,7 @@ function summarizeContent(content: string, sentenceCount = 3): string {
 
   // 2. Tokenize and calculate word frequencies
   const wordFreq: Record<string, number> = {};
-  const words = content.toLowerCase().match(/\b\w+\b/g) || [];
+  const words = content.toLowerCase().match(WORD_REGEX) || [];
 
   words.forEach(word => {
     if (!STOP_WORDS.has(word) && word.length > 2) {
@@ -111,7 +113,7 @@ function summarizeContent(content: string, sentenceCount = 3): string {
 
   // 3. Score sentences based on word importance
   const sentenceScores = sentences.map((sentence, index) => {
-    const sentenceWords = sentence.toLowerCase().match(/\b\w+\b/g) || [];
+    const sentenceWords = sentence.toLowerCase().match(WORD_REGEX) || [];
     let score = 0;
     sentenceWords.forEach(word => {
       if (wordFreq[word]) {
