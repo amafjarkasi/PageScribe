@@ -64,6 +64,10 @@ function calculateContentStats(content: string): ContentStats {
   };
 }
 
+function formatStatsResult(stats: ContentStats): string {
+  return `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
+}
+
 // Expanded stop words list for better summarization
 const STOP_WORDS = new Set([
   'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are', 'as', 'at',
@@ -208,7 +212,8 @@ export default defineBackground(() => {
 
           } else if (type === 'stats') {
             const stats = calculateContentStats(markdown);
-            sendResponse({ result: `Word count: ${stats.wordCount}`, stats });
+            const result = formatStatsResult(stats);
+            sendResponse({ result, stats });
 
           } else if (type === 'preview') {
             const previewContent = exportFormat === 'html' ? html : markdown;
@@ -272,7 +277,7 @@ export default defineBackground(() => {
 
           } else if (type === 'stats') {
             const stats = calculateContentStats(content); // Use content for text stats
-            const result = `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
+            const result = formatStatsResult(stats);
             sendResponse({ result, stats });
 
           } else if (type === 'preview') {
