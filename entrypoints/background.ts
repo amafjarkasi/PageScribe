@@ -6,9 +6,8 @@ import keyword_extractor from 'keyword-extractor';
 // @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
+import { summarizeContent, calculateContentStats, SummaryLength, SummaryFormat } from '../utils/content';
 
-type SummaryLength = 'short' | 'medium' | 'long';
-type SummaryFormat = 'paragraph' | 'bullets';
 
 interface HistoryItem {
   type: 'keywords';
@@ -17,22 +16,6 @@ interface HistoryItem {
   timestamp: number;
 }
 
-interface ContentStats {
-  wordCount: number;
-  charCount: number;
-  readingTime: number; // in minutes
-  paragraphs: number;
-}
-
-// Regular expressions moved to module scope for performance
-const MARKDOWN_SYMBOLS_REGEX = /[#*_`~\[\]()]/g;
-const IMAGES_REGEX = /!\[.*?\]\(.*?\)/g;
-const LINKS_REGEX = /\[.*?\]\(.*?\)/g;
-const CODE_BLOCKS_REGEX = /```[\s\S]*?```/g;
-const INLINE_CODE_REGEX = /`[^`]*`/g;
-const WORDS_SPLIT_REGEX = /\s+/;
-const PARAGRAPHS_SPLIT_REGEX = /\n\s*\n/;
-const SENTENCE_TOKENIZER_REGEX = /[^.!?\n]+[.!?\n]+/g;
 const FILENAME_SANITIZE_REGEX = /[\\/:":*?<>|]/g;
 
 // Function to calculate content statistics
@@ -254,12 +237,7 @@ export default defineBackground(() => {
         } else if (request.action === 'processText') {
           const { type, content, title, summaryLength, summaryFormat } = request;
           if (type === 'summarize') {
-            // Adjust sentence count based on summaryLength
-            let count = 3;
-            if (summaryLength === 'short') count = 2;
-            if (summaryLength === 'long') count = 7;
-
-            const summary = summarizeContent(content, count);
+            const summary = summarizeContent(content, summaryLength, summaryFormat);
             sendResponse({ result: summary });
           } else if (type === 'keywords') {
             const keywords = keyword_extractor.extract(content, {
