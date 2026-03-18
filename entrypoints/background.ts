@@ -1,5 +1,5 @@
 import { escapeHTML } from '../utils/dom';
-import { defineBackground } from 'wxt/sandbox';
+import { defineBackground } from 'wxt/utils/define-background';
 import keyword_extractor from 'keyword-extractor';
 // We use dynamic import for pdfjs-dist to avoid build-time execution issues (DOMMatrix undefined)
 // import * as pdfjsLib from 'pdfjs-dist';
@@ -41,6 +41,10 @@ function generateCSV(data: CrawledData[]): string {
 interface CrawledData {
   url: string;
   title: string;
+  author?: string;
+  publishedTime?: string;
+  siteName?: string;
+  description?: string;
   content: string;
 }
 function sendMessageToTab(tabId: number, message: any): Promise<any> {
@@ -77,7 +81,7 @@ export default defineBackground(() => {
     (async () => {
       try {
         if (request.action === 'processContent') {
-          const { type, markdown, title, html, exportFormat } = request;
+          const { type, markdown, title, html, exportFormat, author, publishedTime, siteName, description } = request;
 
           if (type === 'save') {
             const safeTitle = sanitizeFilename(title);
@@ -85,12 +89,24 @@ export default defineBackground(() => {
             let mimeType: string;
             let fileExtension: string;
 
+
+            const generateFrontmatter = () => {
+              const lines = ['---', `title: "${title?.replace(/"/g, '\\"')}"`];
+              if (author) lines.push(`author: "${author.replace(/"/g, '\\"')}"`);
+              if (publishedTime) lines.push(`date: ${publishedTime}`);
+              if (siteName) lines.push(`site: "${siteName.replace(/"/g, '\\"')}"`);
+              if (description) lines.push(`description: "${description.replace(/"/g, '\\"')}"`);
+              lines.push(`url: "${sender.tab?.url || ''}"`);
+              lines.push('---', '');
+              return lines.join('\n');
+            };
+
             if (exportFormat === 'html') {
               fileContent = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${escapeHTML(title)}</title></head><body><h1>${escapeHTML(title)}</h1>${html}</body></html>`;
               mimeType = 'text/html';
               fileExtension = 'html';
             } else {
-              fileContent = markdown;
+              fileContent = generateFrontmatter() + '\n' + markdown;
               mimeType = 'text/markdown';
               fileExtension = 'md';
             }
@@ -177,8 +193,8 @@ export default defineBackground(() => {
             sendResponse({ result: 'Preview ready', preview: content });
           }
         } else if (request.action === 'startCrawl') {
-          const { startUrl, depth, stayOnDomain } = request;
-          crawl(startUrl, depth, stayOnDomain);
+          const { startUrl, depth, stayOnDomain, excludePattern } = request;
+          crawl(startUrl, depth, stayOnDomain, excludePattern);
           sendResponse({ result: 'Crawl started.' });
         }
       } catch (e) {
@@ -190,7 +206,7 @@ export default defineBackground(() => {
   });
 });
 
-async function crawl(startUrl: string, depth: number, stayOnDomain: boolean) {
+async function crawl(startUrl: string, depth: number, stayOnDomain: boolean, excludePattern?: string) {
   await chrome.storage.local.set({ isCrawling: true, crawlProgress: { visited: 0, queue: 1 } });
   try {
     const queue: { url: string; level: number }[] = [{ url: startUrl, level: 0 }];
@@ -217,12 +233,17 @@ async function crawl(startUrl: string, depth: number, stayOnDomain: boolean) {
         if (tabId) {
           const response = await sendMessageToTab(tabId, {
             action: 'extractContent',
+            autoScroll: true,
           });
 
           if (response && response.markdown) {
             crawledData.push({
               url: url,
               title: response.title,
+              author: response.author,
+              publishedTime: response.publishedTime,
+              siteName: response.siteName,
+              description: response.description,
               content: response.markdown,
             });
 
@@ -235,6 +256,9 @@ async function crawl(startUrl: string, depth: number, stayOnDomain: boolean) {
                 if (link) { // Ensure link is not null or empty
                   const linkUrl = new URL(link, url).href;
                   if (stayOnDomain && new URL(linkUrl).hostname !== startHostname) {
+                    continue;
+                  }
+                  if (excludePattern && new RegExp(excludePattern, 'i').test(linkUrl)) {
                     continue;
                   }
                   if (!visited.has(linkUrl)) {

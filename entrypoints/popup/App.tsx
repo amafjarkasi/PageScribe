@@ -43,6 +43,7 @@ function App() {
   const [crawlProgress, setCrawlProgress] = useState<{visited: number, queue: number} | null>(null);
   const [crawlDepth, setCrawlDepth] = useState(1);
   const [stayOnDomain, setStayOnDomain] = useState(true);
+  const [excludePattern, setExcludePattern] = useState("");
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>('page');
   const [contentStats, setContentStats] = useState<ContentStats | null>(null);
@@ -229,6 +230,7 @@ function App() {
           startUrl: tab.url,
           depth: crawlDepth,
           stayOnDomain: stayOnDomain,
+          excludePattern: excludePattern,
         });
         // No need to set status here, the storage listener will do it
       }
@@ -420,6 +422,10 @@ function App() {
           <div className="checkbox-group">
             <input type="checkbox" id="stay-on-domain" checked={stayOnDomain} onChange={(e) => setStayOnDomain(e.target.checked)} />
             <label htmlFor="stay-on-domain">Stay on domain</label>
+          </div>
+          <div className="form-group">
+            <label htmlFor="exclude-pattern">Exclude URL Regex (optional)</label>
+            <input type="text" id="exclude-pattern" placeholder="e.g. \/login|\/admin" value={excludePattern} onChange={(e) => setExcludePattern(e.target.value)} />
           </div>
           {crawlProgress && (
             <div style={{ marginBottom: '10px', fontSize: '14px' }}>
