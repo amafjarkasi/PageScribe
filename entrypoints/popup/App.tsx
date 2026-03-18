@@ -42,12 +42,14 @@ function App() {
   const [action, setAction] = useState<Action>('save');
   const [loading, setLoading] = useState(false);
   const [isCrawling, setIsCrawling] = useState(false);
+  const [crawlProgress, setCrawlProgress] = useState<{visited: number, queue: number} | null>(null);
   const [crawlDepth, setCrawlDepth] = useState(1);
   const [maxPages, setMaxPages] = useState(20);
   const [crawlDelay, setCrawlDelay] = useState(500);
   const [excludePatterns, setExcludePatterns] = useState('');
   const [crawlFormat, setCrawlFormat] = useState<'json' | 'csv'>('json');
   const [stayOnDomain, setStayOnDomain] = useState(true);
+  const [excludePattern, setExcludePattern] = useState("");
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>('page');
   const [searchQuery, setSearchQuery] = useState('');
@@ -87,13 +89,17 @@ function App() {
           setStatus('Crawl finished.');
         }
       }
+      if (changes.crawlProgress) {
+        setCrawlProgress(changes.crawlProgress.newValue as any);
+      }
     };
     chrome.storage.onChanged.addListener(stateListener);
 
     // Initial state load
-    chrome.storage.local.get({ history: [], isCrawling: false, isDarkMode: false }, (res) => {
+    chrome.storage.local.get({ history: [], isCrawling: false, isDarkMode: false, crawlProgress: null }, (res) => {
       setHistory(res.history as HistoryItem[]);
       setIsCrawling(res.isCrawling as boolean);
+      setCrawlProgress(res.crawlProgress as any);
       setIsDarkMode(res.isDarkMode as boolean);
       if (res.isCrawling) {
         setStatus('Crawling in progress...');
@@ -256,6 +262,12 @@ function App() {
      }
   };
 
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setStatus('Copied to clipboard!');
+    setTimeout(() => setStatus(''), 2000);
+  };
+
   const startCrawl = async () => {
     setStatus('Starting crawl...');
     try {
@@ -266,6 +278,7 @@ function App() {
           startUrl: tab.url,
           depth: crawlDepth,
           stayOnDomain: stayOnDomain,
+          excludePattern: excludePattern,
           maxPages: maxPages,
           crawlDelay: crawlDelay,
           excludePatterns: excludePatterns,
@@ -498,7 +511,10 @@ function App() {
             {status && <p className="status">{status}</p>}
             {result && (
               <div className="result-box">
-                <h4>Result:</h4>
+                <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                  <h4>Result:</h4>
+                  <button className="secondary-button" onClick={() => handleCopy(result)}>Copy</button>
+                </div>
                 <p>{result}</p>
               </div>
             )}
@@ -527,7 +543,10 @@ function App() {
             )}
             {previewContent && (
               <div className="preview-box">
-                <h4>Content Preview:</h4>
+                <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                  <h4>Content Preview:</h4>
+                  <button className="secondary-button" onClick={() => handleCopy(previewContent)}>Copy</button>
+                </div>
                 <div className="preview-content">
                   {exportFormat === 'html' ? (
                     <div dangerouslySetInnerHTML={{ __html: previewContent }} />
@@ -580,6 +599,16 @@ function App() {
               <label htmlFor="do-auto-scroll">Auto-Scroll</label>
             </div>
           </div>
+          <div className="form-group">
+            <label htmlFor="exclude-pattern">Exclude URL Regex (optional)</label>
+            <input type="text" id="exclude-pattern" placeholder="e.g. \/login|\/admin" value={excludePattern} onChange={(e) => setExcludePattern(e.target.value)} />
+          </div>
+          {crawlProgress && (
+            <div style={{ marginBottom: '10px', fontSize: '14px' }}>
+               <p><strong>Pages Crawled:</strong> {crawlProgress.visited}</p>
+               <p><strong>Pages in Queue:</strong> {crawlProgress.queue}</p>
+            </div>
+          )}
           <button className="primary-button" onClick={startCrawl} disabled={isCrawling}>
             {isCrawling ? 'Crawling...' : 'Start Crawl'}
           </button>

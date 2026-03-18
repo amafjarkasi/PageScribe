@@ -46,9 +46,25 @@ function formatStatsResult(stats: ContentStats): string {
   return `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
 }
 
+
+function generateCSV(data: CrawledData[]): string {
+  if (data.length === 0) return '';
+  const escapeCsv = (str: string) => '"' + str.replace(/"/g, '""') + '"';
+  const headers = ['URL', 'Title', 'Content Length'];
+  const rows = data.map(row => [
+    escapeCsv(row.url),
+    escapeCsv(row.title),
+    row.content.length.toString()
+  ]);
+  return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+}
 interface CrawledData {
   url: string;
   title: string;
+  author?: string;
+  publishedTime?: string;
+  siteName?: string;
+  description?: string;
   content: string;
   summary?: string;
   metadata?: any;
@@ -114,7 +130,7 @@ export default defineBackground(() => {
     (async () => {
       try {
         if (request.action === 'processContent') {
-          const { type, markdown, title, html, exportFormat } = request;
+          const { type, markdown, title, html, exportFormat, author, publishedTime, siteName, description } = request;
 
           if (type === 'save') {
             const safeTitle = sanitizeFilename(title);
@@ -122,12 +138,24 @@ export default defineBackground(() => {
             let mimeType: string;
             let fileExtension: string;
 
+
+            const generateFrontmatter = () => {
+              const lines = ['---', `title: "${title?.replace(/"/g, '\\"')}"`];
+              if (author) lines.push(`author: "${author.replace(/"/g, '\\"')}"`);
+              if (publishedTime) lines.push(`date: ${publishedTime}`);
+              if (siteName) lines.push(`site: "${siteName.replace(/"/g, '\\"')}"`);
+              if (description) lines.push(`description: "${description.replace(/"/g, '\\"')}"`);
+              lines.push(`url: "${sender.tab?.url || ''}"`);
+              lines.push('---', '');
+              return lines.join('\n');
+            };
+
             if (exportFormat === 'html') {
               fileContent = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${escapeHTML(title)}</title></head><body><h1>${escapeHTML(title)}</h1>${html}</body></html>`;
               mimeType = 'text/html';
               fileExtension = 'html';
             } else {
-              fileContent = markdown;
+              fileContent = generateFrontmatter() + '\n' + markdown;
               mimeType = 'text/markdown';
               fileExtension = 'md';
             }
@@ -293,8 +321,8 @@ export default defineBackground(() => {
             sendResponse({ result: 'Preview ready', preview: content });
           }
         } else if (request.action === 'startCrawl') {
-          const { startUrl, depth, stayOnDomain } = request;
-          crawl(startUrl, depth, stayOnDomain);
+          const { startUrl, depth, stayOnDomain, excludePattern } = request;
+          crawl(startUrl, depth, stayOnDomain, excludePattern);
           sendResponse({ result: 'Crawl started.' });
         }
       } catch (e) {
@@ -306,6 +334,8 @@ export default defineBackground(() => {
   });
 });
 
+async function crawl(startUrl: string, depth: number, stayOnDomain: boolean, excludePattern?: string) {
+  await chrome.storage.local.set({ isCrawling: true, crawlProgress: { visited: 0, queue: 1 } });
 async function crawl(
   startUrl: string,
   depth: number,
@@ -336,6 +366,7 @@ async function crawl(
       }
 
       visited.add(url);
+      await chrome.storage.local.set({ crawlProgress: { visited: visited.size, queue: queue.length } });
       let tabId: number | undefined;
 
       try {
@@ -351,6 +382,7 @@ async function crawl(
         if (tabId) {
           const response = await sendMessageToTab(tabId, {
             action: 'extractContent',
+            autoScroll: true,
           });
 
           if (response && response.markdown) {
@@ -358,6 +390,10 @@ async function crawl(
             crawledData.push({
               url: url,
               title: response.title,
+              author: response.author,
+              publishedTime: response.publishedTime,
+              siteName: response.siteName,
+              description: response.description,
               content: response.markdown,
               summary: summary,
               metadata: response.metadata
@@ -372,6 +408,9 @@ async function crawl(
                 if (link) { // Ensure link is not null or empty
                   const linkUrl = new URL(link, url).href;
                   if (stayOnDomain && new URL(linkUrl).hostname !== startHostname) {
+                    continue;
+                  }
+                  if (excludePattern && new RegExp(excludePattern, 'i').test(linkUrl)) {
                     continue;
                   }
                   if (!visited.has(linkUrl)) {
@@ -391,6 +430,24 @@ async function crawl(
       }
     }
 
+    const jsonContent = JSON.stringify(crawledData, null, 2);
+    const jsonBlob = new Blob([jsonContent], { type: 'application/json' });
+    const csvContent = generateCSV(crawledData);
+    const csvBlob = new Blob([csvContent], { type: 'text/csv' });
+
+    // Download CSV
+    const csvReader = new FileReader();
+    csvReader.onload = () => {
+      chrome.downloads.download({
+        url: csvReader.result as string,
+        filename: 'crawled_content.csv',
+        saveAs: true,
+      });
+    };
+    csvReader.readAsDataURL(csvBlob);
+
+    // Download JSON
+    const blob = jsonBlob; // keep existing variable for the json download below
     let fileContent: string;
     let mimeType: string;
     let fileName: string;
@@ -422,6 +479,6 @@ async function crawl(
     };
     reader.readAsDataURL(blob);
   } finally {
-    await chrome.storage.local.set({ isCrawling: false });
+    await chrome.storage.local.set({ isCrawling: false, crawlProgress: null });
   }
 }
