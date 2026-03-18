@@ -1,8 +1,12 @@
 import keyword_extractor from 'keyword-extractor';
 import { pdf } from 'pdf-parse';
-
-type SummaryLength = 'short' | 'medium' | 'long';
-type SummaryFormat = 'paragraph' | 'bullets';
+import {
+  calculateContentStats,
+  summarizeContent,
+  escapeHTML,
+  type SummaryLength,
+  type SummaryFormat
+} from '../utils/content';
 
 interface HistoryItem {
   type: 'keywords';
@@ -16,54 +20,6 @@ interface ContentStats {
   charCount: number;
   readingTime: number; // in minutes
   paragraphs: number;
-}
-
-// Function to calculate content statistics
-function calculateContentStats(content: string): ContentStats {
-  // Remove markdown syntax for more accurate counting
-  const plainText = content
-    .replace(/[#*_`~\[\]()]/g, '') // Remove markdown symbols
-    .replace(/!\[.*?\]\(.*?\)/g, '') // Remove images
-    .replace(/\[.*?\]\(.*?\)/g, '') // Remove links
-    .replace(/```[\s\S]*?```/g, '') // Remove code blocks
-    .replace(/`[^`]*`/g, '') // Remove inline code
-    .trim();
-
-  const words = plainText.split(/\s+/).filter(word => word.length > 0);
-  const wordCount = words.length;
-  const charCount = plainText.length;
-  
-  // Average reading speed is 200-250 words per minute, we'll use 225
-  const readingTime = Math.ceil(wordCount / 225);
-  
-  // Count paragraphs (split by double newlines)
-  const paragraphs = content.split(/\n\s*\n/).filter(p => p.trim().length > 0).length;
-
-  return {
-    wordCount,
-    charCount,
-    readingTime: Math.max(1, readingTime), // Minimum 1 minute
-    paragraphs
-  };
-}
-
-// Function to generate a simple summary
-function summarizeContent(content: string, sentenceCount = 3): string {
-  if (!content) {
-    return "Not enough content to summarize.";
-  }
-
-  // A simple sentence tokenizer that handles various endings.
-  const sentences = content.match(/[^.!?\n]+[.!?\n]+/g) || [];
-
-  if (sentences.length === 0) {
-    // Fallback for content without clear sentence endings
-    return content.length > 250 ? content.substring(0, 250) + '...' : content;
-  }
-
-  const summary = sentences.slice(0, sentenceCount).join(' ').trim();
-
-  return summary || "Could not generate a summary.";
 }
 
 interface CrawledData {
@@ -99,21 +55,12 @@ function sanitizeFilename(filename: string): string {
   return filename.replace(/[\\/:":*?<>|]/g, '_');
 }
 
-function escapeHTML(str: string): string {
-  const table: Record<string, string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  };
-  return str.replace(/[&<>"']/g, (tag) => table[tag] || tag);
-}
-
 export default defineBackground(() => {
   chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
-    if (request.action === 'processContent') {
-      const { type, markdown, title, html, exportFormat } = request;
+    if (request.action === 'processContent' || request.action === 'processText') {
+      const { type, title, summaryLength, summaryFormat, exportFormat } = request;
+      const content = request.action === 'processContent' ? request.markdown : request.content;
+      const html = request.html;
 
       if (type === 'save') {
         const safeTitle = sanitizeFilename(title);
@@ -127,7 +74,7 @@ export default defineBackground(() => {
           mimeType = 'text/html';
           fileExtension = 'html';
         } else {
-          fileContent = markdown;
+          fileContent = content;
           mimeType = 'text/markdown';
           fileExtension = 'md';
         }
@@ -145,27 +92,18 @@ export default defineBackground(() => {
         sendResponse({ result: `Content saved as ${fileExtension.toUpperCase()} file.` });
 
       } else if (type === 'stats') {
-        const stats = calculateContentStats(markdown);
-        sendResponse({ result: `Word count: ${stats.wordCount}`, stats });
+        const stats = calculateContentStats(content);
+        const result = `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
+        sendResponse({ result, stats });
 
       } else if (type === 'preview') {
-        const previewContent = exportFormat === 'html' ? html : markdown;
+        const previewContent = exportFormat === 'html' ? html : content;
         sendResponse({ result: 'Preview ready', preview: previewContent });
-      }
-    } else if (request.action === 'parsePdf') {
-      try {
-        const buffer = Buffer.from(request.pdfData.split(',')[1], 'base64');
-        const data = await pdf(buffer);
-        sendResponse({ text: data.text });
-      } catch (error: any) {
-        console.error('Error parsing PDF:', error);
-        sendResponse({ error: `Failed to parse PDF: ${error.message}` });
-      }
-    } else if (request.action === 'processText') {
-      const { type, content, title, summaryLength } = request;
-      if (type === 'summarize') {
-        const summary = summarizeContent(content, summaryLength);
+
+      } else if (type === 'summarize') {
+        const summary = summarizeContent(content, summaryLength, summaryFormat);
         sendResponse({ result: summary });
+
       } else if (type === 'keywords') {
         const keywords = keyword_extractor.extract(content, {
           language: 'english',
@@ -179,11 +117,15 @@ export default defineBackground(() => {
           chrome.storage.local.set({ history: [historyItem, ...res.history] });
         });
         sendResponse({ result });
-
-      } else if (type === 'stats') {
-        const stats = calculateContentStats(content);
-        const result = `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
-        sendResponse({ result, stats });
+      }
+    } else if (request.action === 'parsePdf') {
+      try {
+        const buffer = Buffer.from(request.pdfData.split(',')[1], 'base64');
+        const data = await pdf(buffer);
+        sendResponse({ text: data.text });
+      } catch (error: any) {
+        console.error('Error parsing PDF:', error);
+        sendResponse({ error: `Failed to parse PDF: ${error.message}` });
       }
     } else if (request.action === 'startCrawl') {
       const { startUrl, depth, stayOnDomain } = request;
