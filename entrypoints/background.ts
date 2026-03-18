@@ -1,6 +1,14 @@
 import { escapeHTML } from '../utils/dom';
 import { defineBackground } from 'wxt/utils/define-background';
 import keyword_extractor from 'keyword-extractor';
+import { pdf } from 'pdf-parse';
+import {
+  calculateContentStats,
+  summarizeContent,
+  escapeHTML,
+  type SummaryLength,
+  type SummaryFormat
+} from '../utils/content';
 // We use dynamic import for pdfjs-dist to avoid build-time execution issues (DOMMatrix undefined)
 // import * as pdfjsLib from 'pdfjs-dist';
 
@@ -18,6 +26,11 @@ interface HistoryItem {
   timestamp: number;
 }
 
+interface ContentStats {
+  wordCount: number;
+  charCount: number;
+  readingTime: number; // in minutes
+  paragraphs: number;
 const FILENAME_SANITIZE_REGEX = /[\\/:":*?<>|]/g;
 const WORD_REGEX = /\b\w+\b/g;
 
@@ -56,6 +69,33 @@ function sendMessageToTab(tabId: number, message: any): Promise<any> {
 }
 
 function sanitizeFilename(filename: string): string {
+  if (!filename) return 'download';
+  return filename.replace(/[\\/:":*?<>|]/g, '_');
+}
+
+export default defineBackground(() => {
+  chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
+    if (request.action === 'processContent' || request.action === 'processText') {
+      const { type, title, summaryLength, summaryFormat, exportFormat } = request;
+      const content = request.action === 'processContent' ? request.markdown : request.content;
+      const html = request.html;
+
+      if (type === 'save') {
+        const safeTitle = sanitizeFilename(title);
+        let fileContent: string;
+        let mimeType: string;
+        let fileExtension: string;
+
+        if (exportFormat === 'html') {
+          const escapedTitle = escapeHTML(title);
+          fileContent = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${escapedTitle}</title></head><body><h1>${escapedTitle}</h1>${html}</body></html>`;
+          mimeType = 'text/html';
+          fileExtension = 'html';
+        } else {
+          fileContent = content;
+          mimeType = 'text/markdown';
+          fileExtension = 'md';
+        }
   return filename.replace(FILENAME_SANITIZE_REGEX, '_');
 }
 
@@ -120,6 +160,57 @@ export default defineBackground(() => {
                 bytes[i] = binaryString.charCodeAt(i);
             }
 
+      } else if (type === 'stats') {
+        const stats = calculateContentStats(content);
+        const result = `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
+        sendResponse({ result, stats });
+
+      } else if (type === 'preview') {
+        const previewContent = exportFormat === 'html' ? html : content;
+        sendResponse({ result: 'Preview ready', preview: previewContent });
+
+      } else if (type === 'summarize') {
+        const summary = summarizeContent(content, summaryLength, summaryFormat);
+        sendResponse({ result: summary });
+
+      } else if (type === 'keywords') {
+        const rawKeywords = keyword_extractor.extract(content || '', {
+          language: 'english',
+          remove_digits: true,
+          return_changed_case: true,
+          remove_duplicates: false,
+        });
+
+        // Calculate keyword frequency for basic scoring
+        const scores: Record<string, number> = {};
+        rawKeywords.forEach(kw => {
+          scores[kw] = (scores[kw] || 0) + 1;
+        });
+
+        const sortedKeywords = Object.entries(scores)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 15);
+
+        const result = sortedKeywords.map(([kw, score]) => `${kw} (${score})`).join(', ');
+        const historyItem: HistoryItem = { type: 'keywords', title, result, timestamp: Date.now() };
+        chrome.storage.local.get({ history: [] }, (res) => {
+          chrome.storage.local.set({ history: [historyItem, ...res.history] });
+        });
+        sendResponse({ result });
+      }
+    } else if (request.action === 'parsePdf') {
+      try {
+        const buffer = Buffer.from(request.pdfData.split(',')[1], 'base64');
+        const data = await pdf(buffer);
+        sendResponse({
+          text: data.text,
+          info: data.info,
+          metadata: data.metadata,
+          numpages: data.numpages,
+        });
+      } catch (error: any) {
+        console.error('Error parsing PDF:', error);
+        sendResponse({ error: `Failed to parse PDF: ${error.message}` });
             const loadingTask = pdfjsLib.getDocument({ data: bytes });
             const pdfDocument = await loadingTask.promise;
 
