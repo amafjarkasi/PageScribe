@@ -1,4 +1,5 @@
-import { defineBackground } from 'wxt/sandbox';
+import { escapeHTML } from '../utils/dom';
+import { defineBackground } from 'wxt/utils/define-background';
 import keyword_extractor from 'keyword-extractor';
 // We use dynamic import for pdfjs-dist to avoid build-time execution issues (DOMMatrix undefined)
 // import * as pdfjsLib from 'pdfjs-dist';
@@ -7,7 +8,7 @@ import keyword_extractor from 'keyword-extractor';
 // @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
-import { summarizeContent, calculateContentStats, SummaryLength, SummaryFormat } from '../utils/content';
+import { summarizeContent, calculateContentStats, type SummaryLength, type SummaryFormat, type ContentStats } from '../utils/content';
 
 
 interface HistoryItem {
@@ -20,110 +21,9 @@ interface HistoryItem {
 const FILENAME_SANITIZE_REGEX = /[\\/:":*?<>|]/g;
 const WORD_REGEX = /\b\w+\b/g;
 
-// Function to calculate content statistics
-function calculateContentStats(content: string): ContentStats {
-  // Remove markdown syntax for more accurate counting
-  const plainText = content
-    .replace(MARKDOWN_SYMBOLS_REGEX, '') // Remove markdown symbols
-    .replace(IMAGES_REGEX, '') // Remove images
-    .replace(LINKS_REGEX, '') // Remove links
-    .replace(CODE_BLOCKS_REGEX, '') // Remove code blocks
-    .replace(INLINE_CODE_REGEX, '') // Remove inline code
-    .trim();
-
-  const words = plainText.split(WORDS_SPLIT_REGEX).filter(word => word.length > 0);
-  const wordCount = words.length;
-  const charCount = plainText.length;
-  
-  // Average reading speed is 200-250 words per minute, we'll use 225
-  const readingTime = Math.ceil(wordCount / 225);
-  
-  // Count paragraphs (split by double newlines)
-  const paragraphs = content.split(PARAGRAPHS_SPLIT_REGEX).filter(p => p.trim().length > 0).length;
-
-  return {
-    wordCount,
-    charCount,
-    readingTime: Math.max(1, readingTime), // Minimum 1 minute
-    paragraphs
-  };
-}
 
 function formatStatsResult(stats: ContentStats): string {
   return `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
-}
-
-// Expanded stop words list for better summarization
-const STOP_WORDS = new Set([
-  'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are', 'as', 'at',
-  'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'by',
-  'can', 'did', 'do', 'does', 'doing', 'don', 'down', 'during',
-  'each', 'few', 'for', 'from', 'further',
-  'had', 'has', 'have', 'having', 'he', 'her', 'here', 'hers', 'herself', 'him', 'himself', 'his', 'how',
-  'i', 'if', 'in', 'into', 'is', 'it', 'its', 'itself',
-  'just', 'me', 'more', 'most', 'my', 'myself',
-  'no', 'nor', 'not', 'now',
-  'of', 'off', 'on', 'once', 'only', 'or', 'other', 'our', 'ours', 'ourselves', 'out', 'over', 'own',
-  's', 'same', 'she', 'should', 'so', 'some', 'such',
-  't', 'than', 'that', 'the', 'their', 'theirs', 'them', 'themselves', 'then', 'there', 'these', 'they', 'this', 'those', 'through', 'to', 'too',
-  'under', 'until', 'up',
-  'very',
-  'was', 'we', 'were', 'what', 'when', 'where', 'which', 'while', 'who', 'whom', 'why', 'will', 'with',
-  'you', 'your', 'yours', 'yourself', 'yourselves'
-]);
-
-// Function to generate a smarter summary using sentence scoring
-export function summarizeContent(content: string, sentenceCount = 3): string {
-  if (!content) return "Not enough content to summarize.";
-
-  // A simple sentence tokenizer that handles various endings.
-  const sentences = content.match(SENTENCE_TOKENIZER_REGEX) || [];
-
-  // Fallback if regex fails to split properly (e.g. no punctuation)
-  if (sentences.length === 0) {
-     return content.length > 300 ? content.substring(0, 300) + '...' : content;
-  }
-
-  if (sentences.length <= sentenceCount) {
-    return content;
-  }
-
-  // 2. Tokenize and calculate word frequencies
-  const wordFreq: Record<string, number> = {};
-  const words = content.toLowerCase().match(WORD_REGEX) || [];
-
-  words.forEach(word => {
-    if (!STOP_WORDS.has(word) && word.length > 2) {
-      wordFreq[word] = (wordFreq[word] || 0) + 1;
-    }
-  });
-
-  // 3. Score sentences based on word importance
-  const sentenceScores = sentences.map((sentence, index) => {
-    const sentenceWords = sentence.toLowerCase().match(WORD_REGEX) || [];
-    let score = 0;
-    sentenceWords.forEach(word => {
-      if (wordFreq[word]) {
-        score += wordFreq[word];
-      }
-    });
-
-    // Normalize by length (square root) to favor informative but not excessively long sentences
-    if (sentenceWords.length > 0) {
-        score = score / Math.pow(sentenceWords.length, 0.5);
-    }
-
-    return { sentence, score, index };
-  });
-
-  // 4. Sort by score (descending) and pick top N
-  sentenceScores.sort((a, b) => b.score - a.score);
-  const topSentences = sentenceScores.slice(0, sentenceCount);
-
-  // 5. Reorder by original index to maintain flow
-  topSentences.sort((a, b) => a.index - b.index);
-
-  return topSentences.map(s => s.sentence.trim()).join(' ');
 }
 
 interface CrawledData {
@@ -174,7 +74,7 @@ export default defineBackground(() => {
             let fileExtension: string;
 
             if (exportFormat === 'html') {
-              fileContent = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${title}</title></head><body><h1>${title}</h1>${html}</body></html>`;
+              fileContent = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${escapeHTML(title)}</title></head><body><h1>${escapeHTML(title)}</h1>${html}</body></html>`;
               mimeType = 'text/html';
               fileExtension = 'html';
             } else {
