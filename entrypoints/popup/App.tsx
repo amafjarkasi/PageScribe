@@ -40,6 +40,7 @@ function App() {
   const [action, setAction] = useState<Action>('save');
   const [loading, setLoading] = useState(false);
   const [isCrawling, setIsCrawling] = useState(false);
+  const [crawlProgress, setCrawlProgress] = useState<{visited: number, queue: number} | null>(null);
   const [crawlDepth, setCrawlDepth] = useState(1);
   const [stayOnDomain, setStayOnDomain] = useState(true);
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -77,13 +78,17 @@ function App() {
           setStatus('Crawl finished.');
         }
       }
+      if (changes.crawlProgress) {
+        setCrawlProgress(changes.crawlProgress.newValue as any);
+      }
     };
     chrome.storage.onChanged.addListener(stateListener);
 
     // Initial state load
-    chrome.storage.local.get({ history: [], isCrawling: false, isDarkMode: false }, (res) => {
+    chrome.storage.local.get({ history: [], isCrawling: false, isDarkMode: false, crawlProgress: null }, (res) => {
       setHistory(res.history as HistoryItem[]);
       setIsCrawling(res.isCrawling as boolean);
+      setCrawlProgress(res.crawlProgress as any);
       setIsDarkMode(res.isDarkMode as boolean);
       if (res.isCrawling) {
         setStatus('Crawling in progress...');
@@ -206,6 +211,12 @@ function App() {
      } finally {
        setLoading(false);
      }
+  };
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setStatus('Copied to clipboard!');
+    setTimeout(() => setStatus(''), 2000);
   };
 
   const startCrawl = async () => {
@@ -353,7 +364,10 @@ function App() {
             {status && <p className="status">{status}</p>}
             {result && (
               <div className="result-box">
-                <h4>Result:</h4>
+                <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                  <h4>Result:</h4>
+                  <button className="secondary-button" onClick={() => handleCopy(result)}>Copy</button>
+                </div>
                 <p>{result}</p>
               </div>
             )}
@@ -382,7 +396,10 @@ function App() {
             )}
             {previewContent && (
               <div className="preview-box">
-                <h4>Content Preview:</h4>
+                <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                  <h4>Content Preview:</h4>
+                  <button className="secondary-button" onClick={() => handleCopy(previewContent)}>Copy</button>
+                </div>
                 <div className="preview-content">
                   {exportFormat === 'html' ? (
                     <div dangerouslySetInnerHTML={{ __html: previewContent }} />
@@ -404,6 +421,12 @@ function App() {
             <input type="checkbox" id="stay-on-domain" checked={stayOnDomain} onChange={(e) => setStayOnDomain(e.target.checked)} />
             <label htmlFor="stay-on-domain">Stay on domain</label>
           </div>
+          {crawlProgress && (
+            <div style={{ marginBottom: '10px', fontSize: '14px' }}>
+               <p><strong>Pages Crawled:</strong> {crawlProgress.visited}</p>
+               <p><strong>Pages in Queue:</strong> {crawlProgress.queue}</p>
+            </div>
+          )}
           <button className="primary-button" onClick={startCrawl} disabled={isCrawling}>
             {isCrawling ? 'Crawling...' : 'Start Crawl'}
           </button>
