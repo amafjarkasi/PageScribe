@@ -1,59 +1,67 @@
-# PageScribe
+# 🚀 PageScribe: The Ultimate Content Intelligence Suite 🧠
 
-PageScribe is a powerful Chrome extension for web content extraction and site crawling. It allows you to save the main content of any webpage as a clean, readable Markdown file, extract keywords, and crawl an entire website to a specified depth.
+> **Transforming the Web into Structured, Actionable Insights.**
 
-## Features
+---
 
-- **Readable Content Extraction:** Uses Mozilla's Readability library to extract the main content of a webpage, removing ads, banners, and other clutter.
-- **Save as Markdown:** Saves the extracted content as a well-formatted Markdown file, perfect for archiving, research, or offline reading.
-- **Keyword Extraction:** Analyzes the page content to identify and extract the most relevant keywords.
-- **Site Crawling:** Crawls a website to a user-defined depth, extracting the content from each page and saving the results in a single JSON file.
-- **Modern UI:** A clean, intuitive, and responsive user interface for a seamless experience.
+## 🌟 Presentation Overview
 
-## How to Use
+1.  **The Vision** 🎯
+2.  **Core Capabilities** ⚡
+3.  **Advanced Content Intelligence** 🧠
+4.  **Professional Data Crawling** 🕷️
+5.  **Security & Reliability** 🔒
+6.  **Developer Ecosystem** 🛠️
 
-1.  **Process:**
-    -   Navigate to the webpage you want to process.
-    -   Open the PageScribe extension popup.
-    -   In the "Process" tab, choose an action:
-        -   **Save Full Content:** Extracts the main article and saves it as a Markdown file.
-        -   **Extract Keywords:** Analyzes the text and displays a list of keywords.
-    -   Click "Go" to perform the selected action.
+---
 
-2.  **Crawl:**
-    -   Navigate to the starting URL for the crawl.
-    -   Open the PageScribe extension popup and go to the "Crawl" tab.
-    -   Set the **Crawl Depth** (how many links deep to follow).
-    -   Choose whether to **Stay on domain**.
-    -   Click "Start Crawl." The process will run in the background, and you will be prompted to save the results as a JSON file when it's complete.
+### 1. 🎯 The Vision
+PageScribe is not just a scraper; it's a **Content Intelligence Engine**. In an era of information overload, PageScribe helps you distill noise into knowledge, providing high-quality summaries, deep metrics, and structured data at the click of a button.
 
-3.  **History:**
-    -   The "History" tab displays a record of your extracted keywords.
+---
 
-## Installation
+### 2. ⚡ Core Capabilities
+*   **📄 Clean Extraction:** Powered by Mozilla's Readability to strip ads, banners, and clutter.
+*   **💾 Multi-Format Export:** Save content as clean **Markdown (.md)** or sanitized **HTML (.html)**.
+*   **🖼️ Visual Preview:** Instant in-extension preview of your extracted content.
+*   **📊 Live Statistics:** Real-time word count, character count, and estimated reading time.
 
-To install and run PageScribe locally, follow these steps:
+---
 
-1.  **Clone the repository:**
-    ```sh
-    git clone <repository-url>
-    cd chrome-ext-llm
-    ```
+### 3. 🧠 Advanced Content Intelligence
+*   **📝 Intelligent Summarization:** Uses a weighted **TF-IDF scoring model** with position bias to identify truly salient sentences.
+*   **🎭 Sentiment Analysis:** Instantly detect the emotional tone (Positive, Neutral, Negative) of any page.
+*   **📖 Readability Scoring:** Comprehensive **Flesch-Kincaid** metrics to assess content complexity.
+*   **🔑 Scored Keywords:** Keywords are ranked by frequency and relevance, not just listed.
+*   **🔍 Entity Extraction:** Automatically find **Emails, URLs, Phone Numbers, and Dates**.
+*   **🌐 Language Detection:** Automatic identification of English, Spanish, French, German, and Italian.
+*   **🏷️ Metadata Harvesting:** Deep parsing of **Open Graph, Twitter Cards, and Schema.org** tags.
 
-2.  **Install dependencies:**
-    ```sh
-    bun install
-    ```
+---
 
-3.  **Build the extension:**
-    ```sh
-    bun run build
-    ```
+### 4. 🕷️ Professional Data Crawling
+*   **⚙️ Advanced Configuration:** Control crawl depth, maximum pages, and rate limits (delay).
+*   **🚫 Smart Filtering:** Use **Regex Exclusion Patterns** to skip unwanted paths.
+*   **🤖 Auto-Pilot Mode:** Enable "Auto-Summarize" to build a knowledge base while you sleep.
+*   **📁 Bulk Export:** Download your entire crawl as a structured **JSON** or a flattened **CSV** for Excel/Data analysis.
 
-4.  **Load the extension in Chrome:**
-    -   Open Chrome and navigate to `chrome://extensions`.
-    -   Enable "Developer mode."
-    -   Click "Load unpacked."
-    -   Select the `.output/chrome-mv3` directory from the project folder.
+---
 
-The PageScribe extension should now be installed and ready to use.
+### 5. 🔒 Security & Reliability
+*   **🛡️ XSS Shield:** Every byte of scraped content is sanitized through a **detached DOM engine** in the content script.
+*   **🔏 Strict Escaping:** Metadata is strictly escaped to prevent injection in exported files.
+*   **🧪 Test-Driven:** Backed by an extensive suite of **Bun-powered unit tests** ensuring algorithmic correctness.
+*   **🔧 Manifest V3:** Fully compliant with the latest Chrome Extension security standards.
+
+---
+
+### 6. 🛠️ Developer Ecosystem
+1.  **Clone:** `git clone <repository-url>`
+2.  **Install:** `bun install`
+3.  **Test:** `bun test`
+4.  **Build:** `bun run build`
+5.  **Deploy:** Load the `.output/chrome-mv3` directory into Chrome.
+
+---
+
+> **PageScribe: Because knowledge is power, but focus is everything.** ✨
