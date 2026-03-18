@@ -54,6 +54,7 @@ function App() {
   const [processedText, setProcessedText] = useState<string>('');
   const [processedTitle, setProcessedTitle] = useState<string>('');
   const [pdfAction, setPdfAction] = useState<PdfAction>('summarize');
+  const [pdfMetadata, setPdfMetadata] = useState<any>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -160,6 +161,11 @@ function App() {
         if (response?.text) {
           setProcessedText(response.text);
           setProcessedTitle(pdfFile.name.replace(/\.pdf$/i, ''));
+          setPdfMetadata({
+            pages: response.numpages,
+            info: response.info,
+            metadata: response.metadata
+          });
           setStatus('PDF parsed successfully! Choose an action below.');
         } else {
           setStatus(response?.error || 'Failed to parse PDF.');
@@ -295,6 +301,29 @@ function App() {
         </div>
 
         <div className={`tab-content ${activeTab === 'pdf' ? 'active' : ''}`}>
+          {pdfMetadata && (
+            <div className="stats-box metadata-box">
+              <h4>PDF Information:</h4>
+              <div className="stats-grid">
+                <div className="stat-item">
+                  <span className="stat-label">Pages:</span>
+                  <span className="stat-value">{pdfMetadata.pages}</span>
+                </div>
+                {pdfMetadata.info?.Author && (
+                  <div className="stat-item">
+                    <span className="stat-label">Author:</span>
+                    <span className="stat-value">{pdfMetadata.info.Author}</span>
+                  </div>
+                )}
+                {pdfMetadata.info?.Creator && (
+                  <div className="stat-item">
+                    <span className="stat-label">Creator:</span>
+                    <span className="stat-value">{pdfMetadata.info.Creator}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           {!processedText ? (
             <>
               <div className="form-group">
@@ -336,7 +365,7 @@ function App() {
               <button className="primary-button" onClick={handlePdfAction} disabled={loading}>
                 {loading ? 'Processing...' : 'Go'}
               </button>
-              <button className="secondary-button" onClick={() => setProcessedText('')} style={{marginTop: '10px'}}>
+              <button className="secondary-button" onClick={() => { setProcessedText(''); setPdfMetadata(null); }} style={{marginTop: '10px'}}>
                 Process another PDF
               </button>
             </>

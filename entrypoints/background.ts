@@ -106,13 +106,24 @@ export default defineBackground(() => {
         sendResponse({ result: summary });
 
       } else if (type === 'keywords') {
-        const keywords = keyword_extractor.extract(content || '', {
+        const rawKeywords = keyword_extractor.extract(content || '', {
           language: 'english',
           remove_digits: true,
           return_changed_case: true,
-          remove_duplicates: true,
+          remove_duplicates: false,
         });
-        const result = keywords.join(', ');
+
+        // Calculate keyword frequency for basic scoring
+        const scores: Record<string, number> = {};
+        rawKeywords.forEach(kw => {
+          scores[kw] = (scores[kw] || 0) + 1;
+        });
+
+        const sortedKeywords = Object.entries(scores)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 15);
+
+        const result = sortedKeywords.map(([kw, score]) => `${kw} (${score})`).join(', ');
         const historyItem: HistoryItem = { type: 'keywords', title, result, timestamp: Date.now() };
         chrome.storage.local.get({ history: [] }, (res) => {
           chrome.storage.local.set({ history: [historyItem, ...res.history] });
@@ -123,7 +134,12 @@ export default defineBackground(() => {
       try {
         const buffer = Buffer.from(request.pdfData.split(',')[1], 'base64');
         const data = await pdf(buffer);
-        sendResponse({ text: data.text });
+        sendResponse({
+          text: data.text,
+          info: data.info,
+          metadata: data.metadata,
+          numpages: data.numpages,
+        });
       } catch (error: any) {
         console.error('Error parsing PDF:', error);
         sendResponse({ error: `Failed to parse PDF: ${error.message}` });
