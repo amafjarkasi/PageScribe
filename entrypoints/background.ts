@@ -1,3 +1,5 @@
+import { escapeHTML } from '../utils/dom';
+import { defineBackground } from 'wxt/utils/define-background';
 import keyword_extractor from 'keyword-extractor';
 import { pdf } from 'pdf-parse';
 import {
@@ -8,10 +10,21 @@ import {
   calculateReadability,
   extractEntities,
   generateTableOfContents,
-  detectLanguage,
   type SummaryLength,
   type SummaryFormat
 } from '../utils/content';
+  type SummaryLength,
+  type SummaryFormat
+} from '../utils/content';
+// We use dynamic import for pdfjs-dist to avoid build-time execution issues (DOMMatrix undefined)
+// import * as pdfjsLib from 'pdfjs-dist';
+
+// Worker URL import should be fine as it returns a string
+// @ts-ignore
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
+
+import { summarizeContent, calculateContentStats, type SummaryLength, type SummaryFormat, type ContentStats } from '../utils/content';
+
 
 interface HistoryItem {
   type: 'keywords';
@@ -25,6 +38,12 @@ interface ContentStats {
   charCount: number;
   readingTime: number; // in minutes
   paragraphs: number;
+const FILENAME_SANITIZE_REGEX = /[\\/:":*?<>|]/g;
+const WORD_REGEX = /\b\w+\b/g;
+
+
+function formatStatsResult(stats: ContentStats): string {
+  return `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
 }
 
 interface CrawledData {
@@ -82,34 +101,73 @@ export default defineBackground(() => {
           mimeType = 'text/html';
           fileExtension = 'html';
         } else {
-          // Add YAML Frontmatter to Markdown
-          const frontmatter = [
-            '---',
-            `title: "${title.replace(/"/g, '\\"')}"`,
-            `date: ${new Date().toISOString()}`,
-            `url: "${(request.url || '').replace(/"/g, '\\"')}"`,
-            `author: "${(request.metadata?.author || '').replace(/"/g, '\\"')}"`,
-            `language: ${detectLanguage(content)}`,
-            '---',
-            '',
-            ''
-          ].join('\n');
-          fileContent = frontmatter + content;
+          fileContent = content;
           mimeType = 'text/markdown';
           fileExtension = 'md';
         }
+  return filename.replace(FILENAME_SANITIZE_REGEX, '_');
+}
 
-        const blob = new Blob([fileContent], { type: mimeType });
-        const reader = new FileReader();
-        reader.onload = () => {
-          chrome.downloads.download({
-            url: reader.result as string,
-            filename: `${safeTitle}.${fileExtension}`,
-            saveAs: true,
-          });
-        };
-        reader.readAsDataURL(blob);
-        sendResponse({ result: `Content saved as ${fileExtension.toUpperCase()} file.` });
+export default defineBackground(() => {
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    // Wrap async logic to use sendResponse asynchronously
+    (async () => {
+      try {
+        if (request.action === 'processContent') {
+          const { type, markdown, title, html, exportFormat } = request;
+
+          if (type === 'save') {
+            const safeTitle = sanitizeFilename(title);
+            let fileContent: string;
+            let mimeType: string;
+            let fileExtension: string;
+
+            if (exportFormat === 'html') {
+              fileContent = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${escapeHTML(title)}</title></head><body><h1>${escapeHTML(title)}</h1>${html}</body></html>`;
+              mimeType = 'text/html';
+              fileExtension = 'html';
+            } else {
+              fileContent = markdown;
+              mimeType = 'text/markdown';
+              fileExtension = 'md';
+            }
+
+            const blob = new Blob([fileContent], { type: mimeType });
+            const reader = new FileReader();
+            reader.onload = () => {
+              chrome.downloads.download({
+                url: reader.result as string,
+                filename: `${safeTitle}.${fileExtension}`,
+                saveAs: true,
+              });
+            };
+            reader.readAsDataURL(blob);
+            sendResponse({ result: `Content saved as ${fileExtension.toUpperCase()} file.` });
+
+          } else if (type === 'stats') {
+            const stats = calculateContentStats(markdown);
+            const result = formatStatsResult(stats);
+            sendResponse({ result, stats });
+
+          } else if (type === 'preview') {
+            const previewContent = exportFormat === 'html' ? html : markdown;
+            sendResponse({ result: 'Preview ready', preview: previewContent });
+          }
+        } else if (request.action === 'parsePdf') {
+          try {
+            // Dynamic import for pdfjs-dist
+            const pdfjsLib = await import('pdfjs-dist');
+            // Set worker source
+            pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
+            // pdfjs-dist usage
+            const base64Data = request.pdfData.split(',')[1];
+            const binaryString = atob(base64Data);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
 
       } else if (type === 'stats') {
         const stats = calculateContentStats(content);
@@ -138,6 +196,14 @@ export default defineBackground(() => {
           scores[kw] = (scores[kw] || 0) + 1;
         });
 
+        });
+
+        // Calculate keyword frequency for basic scoring
+        const scores: Record<string, number> = {};
+        rawKeywords.forEach(kw => {
+          scores[kw] = (scores[kw] || 0) + 1;
+        });
+
         const sortedKeywords = Object.entries(scores)
           .sort((a, b) => b[1] - a[1])
           .slice(0, 15);
@@ -155,15 +221,12 @@ export default defineBackground(() => {
       const readability = calculateReadability(content);
       const entities = extractEntities(content);
       const toc = generateTableOfContents(markdown);
-      const language = detectLanguage(content);
 
       sendResponse({
         sentiment,
         readability,
         entities,
-        toc,
-        language,
-        metadata: request.metadata
+        toc
       });
     } else if (request.action === 'parsePdf') {
       try {
@@ -180,11 +243,66 @@ export default defineBackground(() => {
         sendResponse({ error: `Failed to parse PDF: ${error.message}` });
       }
     } else if (request.action === 'startCrawl') {
-      const { startUrl, depth, stayOnDomain, maxPages, excludePatterns, crawlDelay, exportFormat, autoSummarize } = request;
-      crawl(startUrl, depth, stayOnDomain, maxPages, excludePatterns, crawlDelay, exportFormat, autoSummarize);
+      const { startUrl, depth, stayOnDomain, maxPages, excludePatterns, crawlDelay, exportFormat } = request;
+      crawl(startUrl, depth, stayOnDomain, maxPages, excludePatterns, crawlDelay, exportFormat);
       sendResponse({ result: 'Crawl started.' });
     }
     return true;
+            const loadingTask = pdfjsLib.getDocument({ data: bytes });
+            const pdfDocument = await loadingTask.promise;
+
+            let fullText = '';
+            for (let i = 1; i <= pdfDocument.numPages; i++) {
+                const page = await pdfDocument.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map((item: any) => item.str).join(' ');
+                fullText += pageText + '\n\n';
+            }
+
+            sendResponse({ text: fullText });
+          } catch (error: any) {
+            console.error('Error parsing PDF:', error);
+            sendResponse({ error: `Failed to parse PDF: ${error.message}` });
+          }
+        } else if (request.action === 'processText') {
+          const { type, content, title, summaryLength, summaryFormat } = request;
+          if (type === 'summarize') {
+            const summary = summarizeContent(content, summaryLength, summaryFormat);
+            sendResponse({ result: summary });
+          } else if (type === 'keywords') {
+            const keywords = keyword_extractor.extract(content, {
+              language: 'english',
+              remove_digits: true,
+              return_changed_case: true,
+              remove_duplicates: true,
+            });
+            const result = keywords.join(', ');
+            const historyItem: HistoryItem = { type: 'keywords', title, result, timestamp: Date.now() };
+            chrome.storage.local.get({ history: [] }, (res) => {
+              const history = (res.history as HistoryItem[]) || []; chrome.storage.local.set({ history: [historyItem, ...history] });
+            });
+            sendResponse({ result });
+
+          } else if (type === 'stats') {
+            const stats = calculateContentStats(content); // Use content for text stats
+            const result = formatStatsResult(stats);
+            sendResponse({ result, stats });
+
+          } else if (type === 'preview') {
+            // For processText, preview just returns the text
+            sendResponse({ result: 'Preview ready', preview: content });
+          }
+        } else if (request.action === 'startCrawl') {
+          const { startUrl, depth, stayOnDomain } = request;
+          crawl(startUrl, depth, stayOnDomain);
+          sendResponse({ result: 'Crawl started.' });
+        }
+      } catch (e) {
+        console.error("Background error:", e);
+        sendResponse({ error: "An unexpected error occurred." });
+      }
+    })();
+    return true; // Keep the message channel open for async response
   });
 });
 
@@ -195,8 +313,7 @@ async function crawl(
   maxPages: number = 50,
   excludePatterns: string = '',
   crawlDelay: number = 500,
-  exportFormat: 'json' | 'csv' = 'json',
-  autoSummarize: boolean = false
+  exportFormat: 'json' | 'csv' = 'json'
 ) {
   await chrome.storage.local.set({ isCrawling: true });
   try {
@@ -278,32 +395,18 @@ async function crawl(
     let mimeType: string;
     let fileName: string;
 
-    // Calculate Crawl Analytics
-    const analytics = {
-      totalPages: crawledData.length,
-      totalWords: crawledData.reduce((sum, d) => sum + calculateContentStats(d.content).wordCount, 0),
-      languages: crawledData.reduce((acc: Record<string, number>, d) => {
-        const lang = detectLanguage(d.content);
-        acc[lang] = (acc[lang] || 0) + 1;
-        return acc;
-      }, {}),
-      avgReadingTime: Math.round(crawledData.reduce((sum, d) => sum + calculateContentStats(d.content).readingTime, 0) / crawledData.length) || 0
-    };
-
     if (exportFormat === 'csv') {
-      const headers = ['URL', 'Title', 'Content', 'Summary', 'Description'];
+      const headers = ['URL', 'Title', 'Content'];
       const rows = crawledData.map(d => [
-        `"${(d.url || '').replace(/"/g, '""')}"`,
-        `"${(d.title || '').replace(/"/g, '""')}"`,
-        `"${(d.content || '').replace(/"/g, '""')}"`,
-        `"${(d.summary || '').replace(/"/g, '""')}"`,
-        `"${(d.metadata?.description || '').replace(/"/g, '""')}"`
+        `"${d.url.replace(/"/g, '""')}"`,
+        `"${d.title.replace(/"/g, '""')}"`,
+        `"${d.content.replace(/"/g, '""')}"`
       ].join(','));
       fileContent = [headers.join(','), ...rows].join('\n');
       mimeType = 'text/csv';
       fileName = 'crawled_content.csv';
     } else {
-      fileContent = JSON.stringify({ analytics, data: crawledData }, null, 2);
+      fileContent = JSON.stringify(crawledData, null, 2);
       mimeType = 'application/json';
       fileName = 'crawled_content.json';
     }

@@ -1,24 +1,6 @@
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
 import { sanitizeHTML } from '../utils/dom';
-import { parseDOMMetadata } from '../utils/content';
-
-async function autoScroll() {
-  await new Promise<void>((resolve) => {
-    let totalHeight = 0;
-    const distance = 100;
-    const timer = setInterval(() => {
-      const scrollHeight = document.body.scrollHeight;
-      window.scrollBy(0, distance);
-      totalHeight += distance;
-
-      if (totalHeight >= scrollHeight || totalHeight > 10000) {
-        clearInterval(timer);
-        resolve();
-      }
-    }, 100);
-  });
-}
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -42,8 +24,7 @@ export default defineContentScript({
             markdown: markdown,
             title: article.title, 
             content: article.textContent,
-            html: sanitizedHtml,
-            metadata: metadata
+            html: sanitizedHtml
           });
         } else {
           const sanitizedHtml = sanitizeHTML(document.body.innerHTML || '');
@@ -51,8 +32,7 @@ export default defineContentScript({
             markdown: '', 
             title: document.title, 
             content: document.body.textContent || '',
-            html: sanitizedHtml,
-            metadata: metadata
+            html: sanitizedHtml
           });
         }
       } else if (request.action === 'extractLinks') {
