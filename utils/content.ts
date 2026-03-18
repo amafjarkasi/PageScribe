@@ -9,7 +9,7 @@ export interface ContentStats {
 }
 
 export function calculateContentStats(content: string): ContentStats {
-  const plainText = content
+  const plainText = (content || '')
     .replace(/[#*_`~\[\]()]/g, '')
     .replace(/!\[.*?\]\(.*?\)/g, '')
     .replace(/\[.*?\]\(.*?\)/g, '')
@@ -21,7 +21,7 @@ export function calculateContentStats(content: string): ContentStats {
   const wordCount = words.length;
   const charCount = plainText.length;
   const readingTime = Math.ceil(wordCount / 225);
-  const paragraphs = content.split(/\n\s*\n/).filter(p => p.trim().length > 0).length;
+  const paragraphs = (content || '').split(/\n\s*\n/).filter(p => p.trim().length > 0).length;
 
   return {
     wordCount,
@@ -53,6 +53,7 @@ export function summarizeContent(content: string, length: SummaryLength = 'mediu
 }
 
 export function escapeHTML(str: string): string {
+  if (!str) return '';
   const table: Record<string, string> = {
     '&': '&amp;',
     '<': '&lt;',

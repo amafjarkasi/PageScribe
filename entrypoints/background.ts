@@ -52,6 +52,7 @@ function sendMessageToTab(tabId: number, message: any): Promise<any> {
 }
 
 function sanitizeFilename(filename: string): string {
+  if (!filename) return 'download';
   return filename.replace(/[\\/:":*?<>|]/g, '_');
 }
 
@@ -105,7 +106,7 @@ export default defineBackground(() => {
         sendResponse({ result: summary });
 
       } else if (type === 'keywords') {
-        const keywords = keyword_extractor.extract(content, {
+        const keywords = keyword_extractor.extract(content || '', {
           language: 'english',
           remove_digits: true,
           return_changed_case: true,
