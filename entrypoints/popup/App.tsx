@@ -4,7 +4,7 @@ import './App.css';
 type Action = 'save' | 'keywords' | 'stats' | 'preview' | 'summarize';
 type PdfAction = 'summarize' | 'keywords';
 type ExportFormat = 'markdown' | 'html';
-type ActiveTab = 'page' | 'pdf' | 'crawl' | 'history';
+type ActiveTab = 'page' | 'pdf' | 'crawl' | 'history' | 'analysis';
 type SummaryLength = 'short' | 'medium' | 'long';
 type SummaryFormat = 'paragraph' | 'bullets';
 type PdfAction = 'summarize' | 'keywords';
@@ -33,6 +33,7 @@ const ProcessIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" hei
 const PdfIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>;
 const CrawlIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12h20"/><path d="M12 2v20"/><circle cx="12" cy="12" r="4"/></svg>;
 const HistoryIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>;
+const AnalysisIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg>;
 const ThemeIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>;
 
 function App() {
@@ -42,6 +43,10 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [isCrawling, setIsCrawling] = useState(false);
   const [crawlDepth, setCrawlDepth] = useState(1);
+  const [maxPages, setMaxPages] = useState(20);
+  const [crawlDelay, setCrawlDelay] = useState(500);
+  const [excludePatterns, setExcludePatterns] = useState('');
+  const [crawlFormat, setCrawlFormat] = useState<'json' | 'csv'>('json');
   const [stayOnDomain, setStayOnDomain] = useState(true);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>('page');
@@ -56,6 +61,7 @@ function App() {
   const [processedTitle, setProcessedTitle] = useState<string>('');
   const [pdfAction, setPdfAction] = useState<PdfAction>('summarize');
   const [pdfMetadata, setPdfMetadata] = useState<any>(null);
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -255,6 +261,10 @@ function App() {
           startUrl: tab.url,
           depth: crawlDepth,
           stayOnDomain: stayOnDomain,
+          maxPages: maxPages,
+          crawlDelay: crawlDelay,
+          excludePatterns: excludePatterns,
+          exportFormat: crawlFormat,
         });
         // No need to set status here, the storage listener will do it
       }
@@ -275,6 +285,37 @@ function App() {
     chrome.storage.local.set({ isDarkMode: newTheme });
   };
 
+  const handleAnalyze = async () => {
+    setLoading(true);
+    setStatus('Analyzing content...');
+    setAnalysisResult(null);
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id) {
+        const response = await chrome.tabs.sendMessage(tab.id, { action: 'extractContent' });
+        const processResponse = await chrome.runtime.sendMessage({
+          action: 'analyze',
+          content: response.content,
+          markdown: response.markdown,
+          title: response.title,
+        });
+
+        if (processResponse) {
+          setAnalysisResult(processResponse);
+          setStatus('Analysis complete!');
+        } else {
+          setStatus('Failed to analyze content.');
+        }
+      }
+    } catch (error: unknown) {
+      console.error('Error analyzing:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus(`Error: ${message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className={`app-container ${isDarkMode ? 'dark-mode' : ''}`}>
       <header>
@@ -286,8 +327,9 @@ function App() {
         </div>
       </header>
       <nav>
-        <TabButton tab="page" activeTab={activeTab} onClick={setActiveTab}><ProcessIcon /><span>Process Page</span></TabButton>
-        <TabButton tab="pdf" activeTab={activeTab} onClick={setActiveTab}><PdfIcon /><span>Process PDF</span></TabButton>
+        <TabButton tab="page" activeTab={activeTab} onClick={setActiveTab}><ProcessIcon /><span>Page</span></TabButton>
+        <TabButton tab="pdf" activeTab={activeTab} onClick={setActiveTab}><PdfIcon /><span>PDF</span></TabButton>
+        <TabButton tab="analysis" activeTab={activeTab} onClick={setActiveTab}><AnalysisIcon /><span>Analysis</span></TabButton>
         <TabButton tab="crawl" activeTab={activeTab} onClick={setActiveTab}><CrawlIcon /><span>Crawl</span></TabButton>
         <TabButton tab="history" activeTab={activeTab} onClick={setActiveTab}><HistoryIcon /><span>History</span></TabButton>
       </nav>
@@ -456,9 +498,30 @@ function App() {
         )}
 
         <div className={`tab-content ${activeTab === 'crawl' ? 'active' : ''}`}>
+          <div className="form-grid" style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
+            <div className="form-group">
+              <label htmlFor="crawl-depth">Depth</label>
+              <input type="number" id="crawl-depth" value={crawlDepth} onChange={(e) => setCrawlDepth(parseInt(e.target.value, 10))} min="1" />
+            </div>
+            <div className="form-group">
+              <label htmlFor="max-pages">Max Pages</label>
+              <input type="number" id="max-pages" value={maxPages} onChange={(e) => setMaxPages(parseInt(e.target.value, 10))} min="1" />
+            </div>
+            <div className="form-group">
+              <label htmlFor="crawl-delay">Delay (ms)</label>
+              <input type="number" id="crawl-delay" value={crawlDelay} onChange={(e) => setCrawlDelay(parseInt(e.target.value, 10))} min="0" step="100" />
+            </div>
+            <div className="form-group">
+              <label htmlFor="crawl-format">Format</label>
+              <select id="crawl-format" value={crawlFormat} onChange={(e) => setCrawlFormat(e.target.value as 'json' | 'csv')}>
+                <option value="json">JSON</option>
+                <option value="csv">CSV</option>
+              </select>
+            </div>
+          </div>
           <div className="form-group">
-            <label htmlFor="crawl-depth">Crawl Depth</label>
-            <input type="number" id="crawl-depth" value={crawlDepth} onChange={(e) => setCrawlDepth(parseInt(e.target.value, 10))} min="1" />
+            <label htmlFor="exclude-patterns">Exclude (comma-sep regex)</label>
+            <input type="text" id="exclude-patterns" value={excludePatterns} onChange={(e) => setExcludePatterns(e.target.value)} placeholder="e.g. login, logout, /api/.*" />
           </div>
           <div className="checkbox-group">
             <input type="checkbox" id="stay-on-domain" checked={stayOnDomain} onChange={(e) => setStayOnDomain(e.target.checked)} />
@@ -469,6 +532,41 @@ function App() {
           </button>
         </div>
 
+        <div className={`tab-content ${activeTab === 'analysis' ? 'active' : ''}`}>
+          <button className="primary-button" onClick={handleAnalyze} disabled={loading}>
+            {loading ? 'Analyzing...' : 'Analyze Page'}
+          </button>
+          {analysisResult && (
+            <div className="analysis-results" style={{marginTop: '15px'}}>
+              <div className="result-box">
+                <h4>Sentiment:</h4>
+                <p>Type: <strong>{analysisResult.sentiment.type.toUpperCase()}</strong></p>
+                <p>Score: {analysisResult.sentiment.score}</p>
+              </div>
+              <div className="result-box">
+                <h4>Readability:</h4>
+                <p>Flesch Ease: {analysisResult.readability.fleschEase}</p>
+                <p>Grade Level: {analysisResult.readability.fleschKincaidGrade}</p>
+              </div>
+              <div className="result-box">
+                <h4>Entities:</h4>
+                <p>Emails: {analysisResult.entities.emails.join(', ') || 'None'}</p>
+                <p>Phones: {analysisResult.entities.phoneNumbers.join(', ') || 'None'}</p>
+              </div>
+              {analysisResult.toc.length > 0 && (
+                <div className="result-box">
+                  <h4>Table of Contents:</h4>
+                  <ul style={{textAlign: 'left', fontSize: '0.9em'}}>
+                    {analysisResult.toc.map((item: any, i: number) => (
+                      <li key={i} style={{marginLeft: `${(item.level-1)*10}px`}}>{item.text}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className={`tab-content ${activeTab === 'history' ? 'active' : ''}`}>
           <div className="history-header">
             <h3>History</h3>
@@ -476,11 +574,14 @@ function App() {
           </div>
           <div className="history-list">
             {history.length > 0 ? (
-              history.map((item) => (
+              history.map((item: any) => (
                 <div key={item.timestamp} className="history-item">
+                  <div className="history-badge">{item.type.toUpperCase()}</div>
                   <h4>{item.title}</h4>
-                  <p><strong>{item.type}:</strong> {item.result}</p>
-                  <small>{new Date(item.timestamp).toLocaleString()}</small>
+                  <p className="history-result">{item.result}</p>
+                  <div className="history-footer">
+                    <small>{new Date(item.timestamp).toLocaleString()}</small>
+                  </div>
                 </div>
               ))
             ) : (

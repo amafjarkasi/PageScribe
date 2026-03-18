@@ -6,6 +6,13 @@ import {
   calculateContentStats,
   summarizeContent,
   escapeHTML,
+  analyzeSentiment,
+  calculateReadability,
+  extractEntities,
+  generateTableOfContents,
+  type SummaryLength,
+  type SummaryFormat
+} from '../utils/content';
   type SummaryLength,
   type SummaryFormat
 } from '../utils/content';
@@ -187,6 +194,14 @@ export default defineBackground(() => {
           scores[kw] = (scores[kw] || 0) + 1;
         });
 
+        });
+
+        // Calculate keyword frequency for basic scoring
+        const scores: Record<string, number> = {};
+        rawKeywords.forEach(kw => {
+          scores[kw] = (scores[kw] || 0) + 1;
+        });
+
         const sortedKeywords = Object.entries(scores)
           .sort((a, b) => b[1] - a[1])
           .slice(0, 15);
@@ -198,6 +213,19 @@ export default defineBackground(() => {
         });
         sendResponse({ result });
       }
+    } else if (request.action === 'analyze') {
+      const { content, markdown } = request;
+      const sentiment = analyzeSentiment(content);
+      const readability = calculateReadability(content);
+      const entities = extractEntities(content);
+      const toc = generateTableOfContents(markdown);
+
+      sendResponse({
+        sentiment,
+        readability,
+        entities,
+        toc
+      });
     } else if (request.action === 'parsePdf') {
       try {
         const buffer = Buffer.from(request.pdfData.split(',')[1], 'base64');
@@ -211,6 +239,13 @@ export default defineBackground(() => {
       } catch (error: any) {
         console.error('Error parsing PDF:', error);
         sendResponse({ error: `Failed to parse PDF: ${error.message}` });
+      }
+    } else if (request.action === 'startCrawl') {
+      const { startUrl, depth, stayOnDomain, maxPages, excludePatterns, crawlDelay, exportFormat } = request;
+      crawl(startUrl, depth, stayOnDomain, maxPages, excludePatterns, crawlDelay, exportFormat);
+      sendResponse({ result: 'Crawl started.' });
+    }
+    return true;
             const loadingTask = pdfjsLib.getDocument({ data: bytes });
             const pdfDocument = await loadingTask.promise;
 
@@ -269,18 +304,32 @@ export default defineBackground(() => {
   });
 });
 
-async function crawl(startUrl: string, depth: number, stayOnDomain: boolean) {
+async function crawl(
+  startUrl: string,
+  depth: number,
+  stayOnDomain: boolean,
+  maxPages: number = 50,
+  excludePatterns: string = '',
+  crawlDelay: number = 500,
+  exportFormat: 'json' | 'csv' = 'json'
+) {
   await chrome.storage.local.set({ isCrawling: true });
   try {
     const queue: { url: string; level: number }[] = [{ url: startUrl, level: 0 }];
     const visited = new Set<string>();
     const crawledData: CrawledData[] = [];
     const startHostname = new URL(startUrl).hostname;
+    const excludes = excludePatterns ? excludePatterns.split(',').map(p => new RegExp(p.trim())) : [];
 
-    while (queue.length > 0) {
+    while (queue.length > 0 && crawledData.length < maxPages) {
       const { url, level } = queue.shift()!;
 
       if (level > depth || visited.has(url)) {
+        continue;
+      }
+
+      // Check exclusion patterns
+      if (excludes.some(pattern => pattern.test(url))) {
         continue;
       }
 
@@ -288,6 +337,11 @@ async function crawl(startUrl: string, depth: number, stayOnDomain: boolean) {
       let tabId: number | undefined;
 
       try {
+        // Delay between requests
+        if (crawledData.length > 0) {
+          await new Promise(resolve => setTimeout(resolve, crawlDelay));
+        }
+
         // Create a new tab to extract content
         const tab = await chrome.tabs.create({ url, active: false });
         tabId = tab.id;
@@ -332,13 +386,32 @@ async function crawl(startUrl: string, depth: number, stayOnDomain: boolean) {
       }
     }
 
-    const jsonContent = JSON.stringify(crawledData, null, 2);
-    const blob = new Blob([jsonContent], { type: 'application/json' });
+    let fileContent: string;
+    let mimeType: string;
+    let fileName: string;
+
+    if (exportFormat === 'csv') {
+      const headers = ['URL', 'Title', 'Content'];
+      const rows = crawledData.map(d => [
+        `"${d.url.replace(/"/g, '""')}"`,
+        `"${d.title.replace(/"/g, '""')}"`,
+        `"${d.content.replace(/"/g, '""')}"`
+      ].join(','));
+      fileContent = [headers.join(','), ...rows].join('\n');
+      mimeType = 'text/csv';
+      fileName = 'crawled_content.csv';
+    } else {
+      fileContent = JSON.stringify(crawledData, null, 2);
+      mimeType = 'application/json';
+      fileName = 'crawled_content.json';
+    }
+
+    const blob = new Blob([fileContent], { type: mimeType });
     const reader = new FileReader();
     reader.onload = () => {
       chrome.downloads.download({
         url: reader.result as string,
-        filename: 'crawled_content.json',
+        filename: fileName,
         saveAs: true,
       });
     };
