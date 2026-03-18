@@ -7,10 +7,15 @@ export default defineContentScript({
   main() {
     const turndownService = new TurndownService();
 
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
       if (request.action === 'extractContent') {
+        if (request.autoScroll) {
+          await autoScroll();
+        }
         const documentClone = document.cloneNode(true) as Document;
         const article = new Readability(documentClone).parse();
+
+        const metadata = parseDOMMetadata(document);
 
         if (article && article.content) {
           const sanitizedHtml = sanitizeHTML(article.content);

@@ -50,6 +50,8 @@ interface CrawledData {
   url: string;
   title: string;
   content: string;
+  summary?: string;
+  metadata?: any;
 }
 function sendMessageToTab(tabId: number, message: any): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -352,10 +354,13 @@ async function crawl(
           });
 
           if (response && response.markdown) {
+            const summary = autoSummarize ? summarizeContent(response.markdown, 'short') : undefined;
             crawledData.push({
               url: url,
               title: response.title,
               content: response.markdown,
+              summary: summary,
+              metadata: response.metadata
             });
 
             // Find links for the next level

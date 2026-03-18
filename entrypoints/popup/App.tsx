@@ -50,6 +50,8 @@ function App() {
   const [stayOnDomain, setStayOnDomain] = useState(true);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>('page');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [historyFilter, setHistoryFilter] = useState<string>('all');
   const [contentStats, setContentStats] = useState<ContentStats | null>(null);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('markdown');
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -112,7 +114,10 @@ function App() {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) {
-        const response = await chrome.tabs.sendMessage(tab.id, { action: 'extractContent' });
+        const response = await chrome.tabs.sendMessage(tab.id, {
+          action: 'extractContent',
+          autoScroll: doAutoScroll
+        });
         
         const processResponse = await chrome.runtime.sendMessage({
           action: 'processContent',
@@ -278,6 +283,44 @@ function App() {
   const clearHistory = () => {
     chrome.storage.local.set({ history: [] });
   };
+
+  const exportHistory = (format: 'json' | 'csv') => {
+    let content: string;
+    let mimeType: string;
+    let filename: string;
+
+    if (format === 'csv') {
+      const headers = ['Type', 'Title', 'Result', 'Timestamp'];
+      const rows = history.map(item => [
+        item.type,
+        `"${item.title.replace(/"/g, '""')}"`,
+        `"${item.result.replace(/"/g, '""')}"`,
+        new Date(item.timestamp).toISOString()
+      ].join(','));
+      content = [headers.join(','), ...rows].join('\n');
+      mimeType = 'text/csv';
+      filename = 'pagescribe_history.csv';
+    } else {
+      content = JSON.stringify(history, null, 2);
+      mimeType = 'application/json';
+      filename = 'pagescribe_history.json';
+    }
+
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const filteredHistory = history.filter(item => {
+    const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         item.result.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFilter = historyFilter === 'all' || item.type === historyFilter;
+    return matchesSearch && matchesFilter;
+  });
 
   const toggleTheme = () => {
     const newTheme = !isDarkMode;
@@ -523,9 +566,19 @@ function App() {
             <label htmlFor="exclude-patterns">Exclude (comma-sep regex)</label>
             <input type="text" id="exclude-patterns" value={excludePatterns} onChange={(e) => setExcludePatterns(e.target.value)} placeholder="e.g. login, logout, /api/.*" />
           </div>
-          <div className="checkbox-group">
-            <input type="checkbox" id="stay-on-domain" checked={stayOnDomain} onChange={(e) => setStayOnDomain(e.target.checked)} />
-            <label htmlFor="stay-on-domain">Stay on domain</label>
+          <div className="checkbox-grid" style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px', marginTop: '10px'}}>
+            <div className="checkbox-group">
+              <input type="checkbox" id="stay-on-domain" checked={stayOnDomain} onChange={(e) => setStayOnDomain(e.target.checked)} />
+              <label htmlFor="stay-on-domain">Stay on domain</label>
+            </div>
+            <div className="checkbox-group">
+              <input type="checkbox" id="auto-summarize" checked={autoSummarize} onChange={(e) => setAutoSummarize(e.target.checked)} />
+              <label htmlFor="auto-summarize">Auto-Summarize</label>
+            </div>
+            <div className="checkbox-group">
+              <input type="checkbox" id="do-auto-scroll" checked={doAutoScroll} onChange={(e) => setDoAutoScroll(e.target.checked)} />
+              <label htmlFor="do-auto-scroll">Auto-Scroll</label>
+            </div>
           </div>
           <button className="primary-button" onClick={startCrawl} disabled={isCrawling}>
             {isCrawling ? 'Crawling...' : 'Start Crawl'}
@@ -570,8 +623,28 @@ function App() {
         <div className={`tab-content ${activeTab === 'history' ? 'active' : ''}`}>
           <div className="history-header">
             <h3>History</h3>
-            <button className="secondary-button" onClick={clearHistory}>Clear</button>
+            <div className="history-actions">
+              <button className="text-button" onClick={() => exportHistory('json')}>JSON</button>
+              <button className="text-button" onClick={() => exportHistory('csv')}>CSV</button>
+              <button className="secondary-button" onClick={clearHistory}>Clear</button>
+            </div>
           </div>
+
+          <div className="history-controls" style={{marginBottom: '10px', display: 'flex', gap: '5px'}}>
+            <input
+              type="text"
+              placeholder="Search history..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{flex: 1, padding: '5px'}}
+            />
+            <select value={historyFilter} onChange={(e) => setHistoryFilter(e.target.value)} style={{padding: '5px'}}>
+              <option value="all">All</option>
+              <option value="keywords">Keywords</option>
+              <option value="summarize">Summary</option>
+            </select>
+          </div>
+
           <div className="history-list">
             {history.length > 0 ? (
               history.map((item: any) => (
