@@ -1,5 +1,6 @@
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
+import { sanitizeHTML } from '../utils/dom';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -12,19 +13,21 @@ export default defineContentScript({
         const article = new Readability(documentClone).parse();
 
         if (article && article.content) {
-          const markdown = turndownService.turndown(article.content);
+          const sanitizedHtml = sanitizeHTML(article.content);
+          const markdown = turndownService.turndown(sanitizedHtml);
           sendResponse({
             markdown: markdown,
             title: article.title, 
             content: article.textContent,
-            html: article.content 
+            html: sanitizedHtml
           });
         } else {
+          const sanitizedHtml = sanitizeHTML(document.body.innerHTML || '');
           sendResponse({ 
             markdown: '', 
             title: document.title, 
             content: document.body.textContent || '',
-            html: document.body.innerHTML || ''
+            html: sanitizedHtml
           });
         }
       } else if (request.action === 'extractLinks') {

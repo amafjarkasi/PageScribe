@@ -1,8 +1,16 @@
 import keyword_extractor from 'keyword-extractor';
 import { pdf } from 'pdf-parse';
-
-type SummaryLength = 'short' | 'medium' | 'long';
-type SummaryFormat = 'paragraph' | 'bullets';
+import {
+  calculateContentStats,
+  summarizeContent,
+  escapeHTML,
+  analyzeSentiment,
+  calculateReadability,
+  extractEntities,
+  generateTableOfContents,
+  type SummaryLength,
+  type SummaryFormat
+} from '../utils/content';
 
 interface HistoryItem {
   type: 'keywords';
@@ -16,54 +24,6 @@ interface ContentStats {
   charCount: number;
   readingTime: number; // in minutes
   paragraphs: number;
-}
-
-// Function to calculate content statistics
-function calculateContentStats(content: string): ContentStats {
-  // Remove markdown syntax for more accurate counting
-  const plainText = content
-    .replace(/[#*_`~\[\]()]/g, '') // Remove markdown symbols
-    .replace(/!\[.*?\]\(.*?\)/g, '') // Remove images
-    .replace(/\[.*?\]\(.*?\)/g, '') // Remove links
-    .replace(/```[\s\S]*?```/g, '') // Remove code blocks
-    .replace(/`[^`]*`/g, '') // Remove inline code
-    .trim();
-
-  const words = plainText.split(/\s+/).filter(word => word.length > 0);
-  const wordCount = words.length;
-  const charCount = plainText.length;
-  
-  // Average reading speed is 200-250 words per minute, we'll use 225
-  const readingTime = Math.ceil(wordCount / 225);
-  
-  // Count paragraphs (split by double newlines)
-  const paragraphs = content.split(/\n\s*\n/).filter(p => p.trim().length > 0).length;
-
-  return {
-    wordCount,
-    charCount,
-    readingTime: Math.max(1, readingTime), // Minimum 1 minute
-    paragraphs
-  };
-}
-
-// Function to generate a simple summary
-function summarizeContent(content: string, sentenceCount = 3): string {
-  if (!content) {
-    return "Not enough content to summarize.";
-  }
-
-  // A simple sentence tokenizer that handles various endings.
-  const sentences = content.match(/[^.!?\n]+[.!?\n]+/g) || [];
-
-  if (sentences.length === 0) {
-    // Fallback for content without clear sentence endings
-    return content.length > 250 ? content.substring(0, 250) + '...' : content;
-  }
-
-  const summary = sentences.slice(0, sentenceCount).join(' ').trim();
-
-  return summary || "Could not generate a summary.";
 }
 
 interface CrawledData {
@@ -96,13 +56,16 @@ function sendMessageToTab(tabId: number, message: any): Promise<any> {
 }
 
 function sanitizeFilename(filename: string): string {
+  if (!filename) return 'download';
   return filename.replace(/[\\/:":*?<>|]/g, '_');
 }
 
 export default defineBackground(() => {
   chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
-    if (request.action === 'processContent') {
-      const { type, markdown, title, html, exportFormat } = request;
+    if (request.action === 'processContent' || request.action === 'processText') {
+      const { type, title, summaryLength, summaryFormat, exportFormat } = request;
+      const content = request.action === 'processContent' ? request.markdown : request.content;
+      const html = request.html;
 
       if (type === 'save') {
         const safeTitle = sanitizeFilename(title);
@@ -111,11 +74,12 @@ export default defineBackground(() => {
         let fileExtension: string;
 
         if (exportFormat === 'html') {
-          fileContent = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${title}</title></head><body><h1>${title}</h1>${html}</body></html>`;
+          const escapedTitle = escapeHTML(title);
+          fileContent = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${escapedTitle}</title></head><body><h1>${escapedTitle}</h1>${html}</body></html>`;
           mimeType = 'text/html';
           fileExtension = 'html';
         } else {
-          fileContent = markdown;
+          fileContent = content;
           mimeType = 'text/markdown';
           fileExtension = 'md';
         }
@@ -133,82 +97,105 @@ export default defineBackground(() => {
         sendResponse({ result: `Content saved as ${fileExtension.toUpperCase()} file.` });
 
       } else if (type === 'stats') {
-        const stats = calculateContentStats(markdown);
-        sendResponse({ result: `Word count: ${stats.wordCount}`, stats });
+        const stats = calculateContentStats(content);
+        const result = `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
+        sendResponse({ result, stats });
 
       } else if (type === 'preview') {
-        const previewContent = exportFormat === 'html' ? html : markdown;
+        const previewContent = exportFormat === 'html' ? html : content;
         sendResponse({ result: 'Preview ready', preview: previewContent });
-      }
-    } else if (request.action === 'parsePdf') {
-      try {
-        const buffer = Buffer.from(request.pdfData.split(',')[1], 'base64');
-        const data = await pdf(buffer);
-        sendResponse({ text: data.text });
-      } catch (error: any) {
-        console.error('Error parsing PDF:', error);
-        sendResponse({ error: `Failed to parse PDF: ${error.message}` });
-      }
-    } else if (request.action === 'processText') {
-      const { type, content, title, summaryLength, summaryFormat } = request;
-      if (type === 'summarize') {
+
+      } else if (type === 'summarize') {
         const summary = summarizeContent(content, summaryLength, summaryFormat);
         sendResponse({ result: summary });
+
       } else if (type === 'keywords') {
-        const keywords = keyword_extractor.extract(content, {
+        const rawKeywords = keyword_extractor.extract(content || '', {
           language: 'english',
           remove_digits: true,
           return_changed_case: true,
-          remove_duplicates: true,
+          remove_duplicates: false,
         });
-        const result = keywords.join(', ');
+
+        // Calculate keyword frequency for basic scoring
+        const scores: Record<string, number> = {};
+        rawKeywords.forEach(kw => {
+          scores[kw] = (scores[kw] || 0) + 1;
+        });
+
+        const sortedKeywords = Object.entries(scores)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 15);
+
+        const result = sortedKeywords.map(([kw, score]) => `${kw} (${score})`).join(', ');
         const historyItem: HistoryItem = { type: 'keywords', title, result, timestamp: Date.now() };
         chrome.storage.local.get({ history: [] }, (res) => {
           chrome.storage.local.set({ history: [historyItem, ...res.history] });
         });
         sendResponse({ result });
+      }
+    } else if (request.action === 'analyze') {
+      const { content, markdown } = request;
+      const sentiment = analyzeSentiment(content);
+      const readability = calculateReadability(content);
+      const entities = extractEntities(content);
+      const toc = generateTableOfContents(markdown);
 
-      } else if (type === 'stats') {
-        const stats = calculateContentStats(markdown);
-        const result = `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
-        sendResponse({ result, stats });
-
-      } else if (type === 'preview') {
-        let previewContent: string;
-        if (exportFormat === 'html') {
-          previewContent = html;
-        } else {
-          previewContent = markdown;
-        }
-        const result = `Content preview ready (${exportFormat.toUpperCase()} format)`;
-        sendResponse({ result, preview: previewContent });
-
-      } else if (type === 'summarize') {
-        // Use the plain text content for summarization
-        const summary = summarizeContent(content);
-        sendResponse({ result: summary });
+      sendResponse({
+        sentiment,
+        readability,
+        entities,
+        toc
+      });
+    } else if (request.action === 'parsePdf') {
+      try {
+        const buffer = Buffer.from(request.pdfData.split(',')[1], 'base64');
+        const data = await pdf(buffer);
+        sendResponse({
+          text: data.text,
+          info: data.info,
+          metadata: data.metadata,
+          numpages: data.numpages,
+        });
+      } catch (error: any) {
+        console.error('Error parsing PDF:', error);
+        sendResponse({ error: `Failed to parse PDF: ${error.message}` });
       }
     } else if (request.action === 'startCrawl') {
-      const { startUrl, depth, stayOnDomain } = request;
-      crawl(startUrl, depth, stayOnDomain);
+      const { startUrl, depth, stayOnDomain, maxPages, excludePatterns, crawlDelay, exportFormat } = request;
+      crawl(startUrl, depth, stayOnDomain, maxPages, excludePatterns, crawlDelay, exportFormat);
       sendResponse({ result: 'Crawl started.' });
     }
     return true;
   });
 });
 
-async function crawl(startUrl: string, depth: number, stayOnDomain: boolean) {
+async function crawl(
+  startUrl: string,
+  depth: number,
+  stayOnDomain: boolean,
+  maxPages: number = 50,
+  excludePatterns: string = '',
+  crawlDelay: number = 500,
+  exportFormat: 'json' | 'csv' = 'json'
+) {
   await chrome.storage.local.set({ isCrawling: true });
   try {
     const queue: { url: string; level: number }[] = [{ url: startUrl, level: 0 }];
     const visited = new Set<string>();
     const crawledData: CrawledData[] = [];
     const startHostname = new URL(startUrl).hostname;
+    const excludes = excludePatterns ? excludePatterns.split(',').map(p => new RegExp(p.trim())) : [];
 
-    while (queue.length > 0) {
+    while (queue.length > 0 && crawledData.length < maxPages) {
       const { url, level } = queue.shift()!;
 
       if (level > depth || visited.has(url)) {
+        continue;
+      }
+
+      // Check exclusion patterns
+      if (excludes.some(pattern => pattern.test(url))) {
         continue;
       }
 
@@ -216,6 +203,11 @@ async function crawl(startUrl: string, depth: number, stayOnDomain: boolean) {
       let tabId: number | undefined;
 
       try {
+        // Delay between requests
+        if (crawledData.length > 0) {
+          await new Promise(resolve => setTimeout(resolve, crawlDelay));
+        }
+
         // Create a new tab to extract content
         const tab = await chrome.tabs.create({ url, active: false });
         tabId = tab.id;
@@ -260,13 +252,32 @@ async function crawl(startUrl: string, depth: number, stayOnDomain: boolean) {
       }
     }
 
-    const jsonContent = JSON.stringify(crawledData, null, 2);
-    const blob = new Blob([jsonContent], { type: 'application/json' });
+    let fileContent: string;
+    let mimeType: string;
+    let fileName: string;
+
+    if (exportFormat === 'csv') {
+      const headers = ['URL', 'Title', 'Content'];
+      const rows = crawledData.map(d => [
+        `"${d.url.replace(/"/g, '""')}"`,
+        `"${d.title.replace(/"/g, '""')}"`,
+        `"${d.content.replace(/"/g, '""')}"`
+      ].join(','));
+      fileContent = [headers.join(','), ...rows].join('\n');
+      mimeType = 'text/csv';
+      fileName = 'crawled_content.csv';
+    } else {
+      fileContent = JSON.stringify(crawledData, null, 2);
+      mimeType = 'application/json';
+      fileName = 'crawled_content.json';
+    }
+
+    const blob = new Blob([fileContent], { type: mimeType });
     const reader = new FileReader();
     reader.onload = () => {
       chrome.downloads.download({
         url: reader.result as string,
-        filename: 'crawled_content.json',
+        filename: fileName,
         saveAs: true,
       });
     };
