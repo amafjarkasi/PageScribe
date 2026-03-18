@@ -1,5 +1,6 @@
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
+import { sanitizeHTML } from '../utils/dom';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -44,23 +45,36 @@ export default defineContentScript({
         const publishedTime = getMeta('article:published_time');
         const siteName = getMeta('og:site_name');
         const description = getMeta('description') || getMeta('og:description');
+    chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
+      if (request.action === 'extractContent') {
+        if (request.autoScroll) {
+          await autoScroll();
+        }
+        const documentClone = document.cloneNode(true) as Document;
+        const article = new Readability(documentClone).parse();
+
+        const metadata = parseDOMMetadata(document);
 
         if (article && article.content) {
-          const markdown = turndownService.turndown(article.content);
+          const sanitizedHtml = sanitizeHTML(article.content);
+          const markdown = turndownService.turndown(sanitizedHtml);
           sendResponse({
             markdown: markdown,
             title: article.title, 
             content: article.textContent,
             html: article.content,
             author, publishedTime, siteName, description
+            html: sanitizedHtml
           });
         } else {
+          const sanitizedHtml = sanitizeHTML(document.body.innerHTML || '');
           sendResponse({ 
             markdown: '', 
             title: document.title, 
             content: document.body.textContent || '',
             html: document.body.innerHTML || '',
             author: '', publishedTime: '', siteName: '', description: ''
+            html: sanitizedHtml
           });
         }
       } else if (request.action === 'extractLinks') {
