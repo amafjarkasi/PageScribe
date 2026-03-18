@@ -10,8 +10,9 @@
 2.  **Core Capabilities** ⚡
 3.  **Advanced Content Intelligence** 🧠
 4.  **Professional Data Crawling** 🕷️
-5.  **Security & Reliability** 🔒
-6.  **Developer Ecosystem** 🛠️
+5.  **Dynamic Interaction** 🖱️
+6.  **Security & Reliability** 🔒
+7.  **Developer Ecosystem** 🛠️
 
 ---
 
@@ -22,7 +23,7 @@ PageScribe is not just a scraper; it's a **Content Intelligence Engine**. In an 
 
 ### 2. ⚡ Core Capabilities
 *   **📄 Clean Extraction:** Powered by Mozilla's Readability to strip ads, banners, and clutter.
-*   **💾 Multi-Format Export:** Save content as clean **Markdown (.md)** or sanitized **HTML (.html)**.
+*   **💾 Smart Multi-Format Export:** Save content as clean **Markdown (.md)** with automatic **YAML Frontmatter** or sanitized **HTML (.html)**.
 *   **🖼️ Visual Preview:** Instant in-extension preview of your extracted content.
 *   **📊 Live Statistics:** Real-time word count, character count, and estimated reading time.
 
@@ -42,12 +43,20 @@ PageScribe is not just a scraper; it's a **Content Intelligence Engine**. In an 
 ### 4. 🕷️ Professional Data Crawling
 *   **⚙️ Advanced Configuration:** Control crawl depth, maximum pages, and rate limits (delay).
 *   **🚫 Smart Filtering:** Use **Regex Exclusion Patterns** to skip unwanted paths.
-*   **🤖 Auto-Pilot Mode:** Enable "Auto-Summarize" to build a knowledge base while you sleep.
+*   **🤖 Auto-Pilot Mode:** Enable **Auto-Summarize** to build a knowledge base while you sleep.
+*   **📈 Crawl Analytics:** Generates aggregate statistics (Total words, language distribution, avg reading time).
 *   **📁 Bulk Export:** Download your entire crawl as a structured **JSON** or a flattened **CSV** for Excel/Data analysis.
 
 ---
 
-### 5. 🔒 Security & Reliability
+### 5. 🖱️ Dynamic Interaction
+*   **📜 Auto-Scroll:** Automatically scrolls through lazy-loaded content before extraction to ensure no data is missed.
+*   **🔎 History Management:** Full-text search and type-based filtering of your past activity.
+*   **📤 History Export:** Export your entire analysis history to JSON or CSV for external processing.
+
+---
+
+### 6. 🔒 Security & Reliability
 *   **🛡️ XSS Shield:** Every byte of scraped content is sanitized through a **detached DOM engine** in the content script.
 *   **🔏 Strict Escaping:** Metadata is strictly escaped to prevent injection in exported files.
 *   **🧪 Test-Driven:** Backed by an extensive suite of **Bun-powered unit tests** ensuring algorithmic correctness.
@@ -55,7 +64,7 @@ PageScribe is not just a scraper; it's a **Content Intelligence Engine**. In an 
 
 ---
 
-### 6. 🛠️ Developer Ecosystem
+### 7. 🛠️ Developer Ecosystem
 1.  **Clone:** `git clone <repository-url>`
 2.  **Install:** `bun install`
 3.  **Test:** `bun test`

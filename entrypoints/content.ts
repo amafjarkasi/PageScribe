@@ -3,13 +3,33 @@ import TurndownService from 'turndown';
 import { sanitizeHTML } from '../utils/dom';
 import { parseDOMMetadata } from '../utils/content';
 
+async function autoScroll() {
+  await new Promise<void>((resolve) => {
+    let totalHeight = 0;
+    const distance = 100;
+    const timer = setInterval(() => {
+      const scrollHeight = document.body.scrollHeight;
+      window.scrollBy(0, distance);
+      totalHeight += distance;
+
+      if (totalHeight >= scrollHeight || totalHeight > 10000) {
+        clearInterval(timer);
+        resolve();
+      }
+    }, 100);
+  });
+}
+
 export default defineContentScript({
   matches: ['<all_urls>'],
   main() {
     const turndownService = new TurndownService();
 
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
       if (request.action === 'extractContent') {
+        if (request.autoScroll) {
+          await autoScroll();
+        }
         const documentClone = document.cloneNode(true) as Document;
         const article = new Readability(documentClone).parse();
 

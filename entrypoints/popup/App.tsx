@@ -47,6 +47,7 @@ function App() {
   const [excludePatterns, setExcludePatterns] = useState('');
   const [crawlFormat, setCrawlFormat] = useState<'json' | 'csv'>('json');
   const [autoSummarize, setAutoSummarize] = useState(false);
+  const [doAutoScroll, setDoAutoScroll] = useState(false);
   const [stayOnDomain, setStayOnDomain] = useState(true);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>('page');
@@ -113,7 +114,10 @@ function App() {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) {
-        const response = await chrome.tabs.sendMessage(tab.id, { action: 'extractContent' });
+        const response = await chrome.tabs.sendMessage(tab.id, {
+          action: 'extractContent',
+          autoScroll: doAutoScroll
+        });
         
         const processResponse = await chrome.runtime.sendMessage({
           action: 'processContent',
@@ -124,7 +128,8 @@ function App() {
           exportFormat: exportFormat,
           summaryLength: summaryLength,
           summaryFormat: summaryFormat,
-          metadata: response.metadata
+          metadata: response.metadata,
+          url: tab.url
         });
 
         if (processResponse?.result) {
@@ -299,7 +304,10 @@ function App() {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) {
-        const response = await chrome.tabs.sendMessage(tab.id, { action: 'extractContent' });
+        const response = await chrome.tabs.sendMessage(tab.id, {
+          action: 'extractContent',
+          autoScroll: doAutoScroll
+        });
         const processResponse = await chrome.runtime.sendMessage({
           action: 'analyze',
           content: response.content,
@@ -540,6 +548,10 @@ function App() {
               <input type="checkbox" id="auto-summarize" checked={autoSummarize} onChange={(e) => setAutoSummarize(e.target.checked)} />
               <label htmlFor="auto-summarize">Auto-Summarize</label>
             </div>
+            <div className="checkbox-group">
+              <input type="checkbox" id="do-auto-scroll" checked={doAutoScroll} onChange={(e) => setDoAutoScroll(e.target.checked)} />
+              <label htmlFor="do-auto-scroll">Auto-Scroll</label>
+            </div>
           </div>
           <button className="primary-button" onClick={startCrawl} disabled={isCrawling}>
             {isCrawling ? 'Crawling...' : 'Start Crawl'}
@@ -547,9 +559,15 @@ function App() {
         </div>
 
         <div className={`tab-content ${activeTab === 'analysis' ? 'active' : ''}`}>
-          <button className="primary-button" onClick={handleAnalyze} disabled={loading}>
-            {loading ? 'Analyzing...' : 'Analyze Page'}
-          </button>
+          <div className="analysis-header" style={{display: 'flex', gap: '5px', marginBottom: '10px'}}>
+            <button className="primary-button" onClick={handleAnalyze} disabled={loading} style={{flex: 1}}>
+              {loading ? 'Analyzing...' : 'Analyze Page'}
+            </button>
+            <div className="checkbox-group" style={{fontSize: '0.8em', display: 'flex', alignItems: 'center'}}>
+              <input type="checkbox" id="analyze-scroll" checked={doAutoScroll} onChange={(e) => setDoAutoScroll(e.target.checked)} />
+              <label htmlFor="analyze-scroll">Scroll</label>
+            </div>
+          </div>
           {analysisResult && (
             <div className="analysis-results" style={{marginTop: '15px'}}>
               <div className="info-grid" style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px'}}>

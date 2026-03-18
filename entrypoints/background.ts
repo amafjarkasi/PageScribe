@@ -82,7 +82,19 @@ export default defineBackground(() => {
           mimeType = 'text/html';
           fileExtension = 'html';
         } else {
-          fileContent = content;
+          // Add YAML Frontmatter to Markdown
+          const frontmatter = [
+            '---',
+            `title: "${title.replace(/"/g, '\\"')}"`,
+            `date: ${new Date().toISOString()}`,
+            `url: "${(request.url || '').replace(/"/g, '\\"')}"`,
+            `author: "${(request.metadata?.author || '').replace(/"/g, '\\"')}"`,
+            `language: ${detectLanguage(content)}`,
+            '---',
+            '',
+            ''
+          ].join('\n');
+          fileContent = frontmatter + content;
           mimeType = 'text/markdown';
           fileExtension = 'md';
         }
@@ -266,6 +278,18 @@ async function crawl(
     let mimeType: string;
     let fileName: string;
 
+    // Calculate Crawl Analytics
+    const analytics = {
+      totalPages: crawledData.length,
+      totalWords: crawledData.reduce((sum, d) => sum + calculateContentStats(d.content).wordCount, 0),
+      languages: crawledData.reduce((acc: Record<string, number>, d) => {
+        const lang = detectLanguage(d.content);
+        acc[lang] = (acc[lang] || 0) + 1;
+        return acc;
+      }, {}),
+      avgReadingTime: Math.round(crawledData.reduce((sum, d) => sum + calculateContentStats(d.content).readingTime, 0) / crawledData.length) || 0
+    };
+
     if (exportFormat === 'csv') {
       const headers = ['URL', 'Title', 'Content', 'Summary', 'Description'];
       const rows = crawledData.map(d => [
@@ -279,7 +303,7 @@ async function crawl(
       mimeType = 'text/csv';
       fileName = 'crawled_content.csv';
     } else {
-      fileContent = JSON.stringify(crawledData, null, 2);
+      fileContent = JSON.stringify({ analytics, data: crawledData }, null, 2);
       mimeType = 'application/json';
       fileName = 'crawled_content.json';
     }
