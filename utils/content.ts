@@ -8,78 +8,13 @@ export interface ContentStats {
   paragraphs: number;
 }
 
-export function calculateContentStats(content: string): ContentStats {
-  const plainText = (content || '')
-    .replace(/[#*_`~\[\]()]/g, '')
-    .replace(/!\[.*?\]\(.*?\)/g, '')
-    .replace(/\[.*?\]\(.*?\)/g, '')
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/`[^`]*`/g, '')
-    .trim();
-
-  const words = plainText.split(/\s+/).filter(word => word.length > 0);
-  const wordCount = words.length;
-  const charCount = plainText.length;
-  const readingTime = Math.ceil(wordCount / 225);
-  const paragraphs = (content || '').split(/\n\s*\n/).filter(p => p.trim().length > 0).length;
-// Regular expressions moved to module scope for performance
 const MARKDOWN_SYMBOLS_REGEX = /[#*_`~\[\]()]/g;
-const IMAGES_REGEX = /!\[.*?\]\(.*?\)/g;
-const LINKS_REGEX = /\[.*?\]\(.*?\)/g;
-const CODE_BLOCKS_REGEX = /```[\s\S]*?```/g;
-const INLINE_CODE_REGEX = /`[^`]*`/g;
+const IMAGES_REGEX = /!\[([^\]]*)\]\([^)]*\)/g;
+const LINKS_REGEX = /\[([^\]]*)\]\([^)]*\)/g;
 const WORDS_SPLIT_REGEX = /\s+/;
 const PARAGRAPHS_SPLIT_REGEX = /\n\s*\n/;
 const SENTENCE_TOKENIZER_REGEX = /[^.!?\n]+[.!?\n]+/g;
 
-// Function to calculate content statistics
-export function calculateContentStats(content: string): ContentStats {
-  // Remove markdown syntax for more accurate counting
-  const plainText = content
-    .replace(MARKDOWN_SYMBOLS_REGEX, '') // Remove markdown symbols
-    .replace(IMAGES_REGEX, '') // Remove images
-    .replace(LINKS_REGEX, '') // Remove links
-    .replace(CODE_BLOCKS_REGEX, '') // Remove code blocks
-    .replace(INLINE_CODE_REGEX, '') // Remove inline code
-    .trim();
-
-  const words = plainText.split(WORDS_SPLIT_REGEX).filter(word => word.length > 0);
-  const wordCount = words.length;
-  const charCount = plainText.length;
-
-  // Average reading speed is 200-250 words per minute, we'll use 225
-  const readingTime = Math.ceil(wordCount / 225);
-
-  // Count paragraphs (split by double newlines)
-  const paragraphs = content.split(PARAGRAPHS_SPLIT_REGEX).filter(p => p.trim().length > 0).length;
-
-  return {
-    wordCount,
-    charCount,
-    readingTime: Math.max(1, readingTime),
-    readingTime: Math.max(1, readingTime), // Minimum 1 minute
-    paragraphs
-  };
-}
-
-/**
- * A more advanced extractive summarizer using basic TF-IDF principles.
- * It scores sentences based on the importance of the words they contain.
- */
-export function summarizeContent(content: string, length: SummaryLength = 'medium', format: SummaryFormat = 'paragraph'): string {
-  if (!content || content.trim().length < 50) return content || "Not enough content to summarize.";
-
-  const sentences = content.match(/[^.!?\n]+[.!?\n]+/g) || [content];
-  if (sentences.length <= 1) return content;
-
-  // 1. Tokenize and count word frequencies (TF)
-  const words = content.toLowerCase().match(/\b(\w+)\b/g) || [];
-  const wordFreq: Record<string, number> = {};
-  const stopwords = new Set(['the', 'a', 'and', 'is', 'in', 'it', 'you', 'that', 'he', 'was', 'for', 'on', 'are', 'as', 'with', 'his', 'they', 'i', 'at', 'be', 'this', 'have', 'from', 'or', 'one', 'had', 'by', 'word', 'but', 'not', 'what', 'all', 'were', 'we', 'when', 'your', 'can', 'said', 'there', 'use', 'an', 'each', 'which', 'she', 'do', 'how', 'their', 'if', 'will', 'up', 'other', 'about', 'out', 'many', 'then', 'them', 'these', 'so', 'some', 'her', 'would', 'make', 'like', 'him', 'into', 'time', 'has', 'look', 'two', 'more', 'write', 'go', 'see', 'number', 'no', 'way', 'could', 'my', 'than', 'first', 'water', 'been', 'call', 'who', 'oil', 'its', 'now', 'find', 'long', 'down', 'day', 'did', 'get', 'come', 'made', 'may', 'part']);
-
-  words.forEach(word => {
-    if (word.length > 3 && !stopwords.has(word)) {
-// Expanded stop words list for better summarization
 const STOP_WORDS = new Set([
   'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are', 'as', 'at',
   'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'by',
@@ -95,114 +30,98 @@ const STOP_WORDS = new Set([
   'under', 'until', 'up',
   'very',
   'was', 'we', 'were', 'what', 'when', 'where', 'which', 'while', 'who', 'whom', 'why', 'will', 'with',
-  'you', 'your', 'yours', 'yourself', 'yourselves'
+  'you', 'your', 'yours', 'yourself', 'yourselves',
 ]);
 
-// Function to generate a smarter summary using sentence scoring
-export function summarizeContent(content: string, length: SummaryLength | number = 'medium', format: SummaryFormat = 'paragraph'): string {
-  if (!content) return "Not enough content to summarize.";
+export function calculateContentStats(content: string): ContentStats {
+  const safeContent = content || '';
+  const plainText = safeContent
+    .replace(IMAGES_REGEX, '$1')
+    .replace(LINKS_REGEX, '$1')
+    .replace(MARKDOWN_SYMBOLS_REGEX, '')
+    .trim();
 
-  let sentenceCount = 3;
-  if (typeof length === 'number') {
-    sentenceCount = length;
-  } else {
-    if (length === 'short') sentenceCount = 2;
-    if (length === 'long') sentenceCount = 7;
-  }
+  const words = plainText ? plainText.split(WORDS_SPLIT_REGEX).filter((w) => w.length > 0) : [];
+  const wordCount = words.length;
+  const charCount = plainText.length;
+  const readingTime = wordCount === 0 ? 0 : Math.max(1, Math.ceil(wordCount / 225));
+  const paragraphs = safeContent
+    .split(PARAGRAPHS_SPLIT_REGEX)
+    .filter((p) => p.trim().length > 0).length;
 
-  // A simple sentence tokenizer that handles various endings.
+  return {
+    wordCount,
+    charCount,
+    readingTime,
+    paragraphs,
+  };
+}
+
+export function summarizeContent(
+  content: string,
+  length: SummaryLength | number = 'medium',
+  format: SummaryFormat = 'paragraph'
+): string {
+  if (!content || !content.trim()) return 'Not enough content to summarize.';
+
   const sentences = content.match(SENTENCE_TOKENIZER_REGEX) || [];
-
-  // Fallback if regex fails to split properly (e.g. no punctuation)
   if (sentences.length === 0) {
-     return content.length > 300 ? content.substring(0, 300) + '...' : content;
+    return content.length > 300 ? content.substring(0, 300) + '...' : content;
   }
 
-  if (sentences.length <= sentenceCount) {
+  let targetCount: number;
+  if (typeof length === 'number') {
+    targetCount = Math.max(1, Math.floor(length));
+  } else if (length === 'short') {
+    targetCount = Math.min(2, Math.max(1, Math.floor(sentences.length * 0.25)));
+  } else if (length === 'long') {
+    targetCount = Math.min(7, Math.max(6, Math.floor(sentences.length * 0.5)));
+  } else {
+    targetCount = 3;
+  }
+
+  if (sentences.length <= targetCount) {
     if (format === 'bullets') {
-        return sentences.map(s => `- ${s.trim()}`).join('\n');
+      return sentences.map((s) => `- ${s.trim()}`).join('\n');
     }
-    return content;
+    return sentences.map((s) => s.trim()).join(' ');
   }
 
-  // 2. Tokenize and calculate word frequencies
   const wordFreq: Record<string, number> = {};
   const words = content.toLowerCase().match(/\b\w+\b/g) || [];
-
-  words.forEach(word => {
+  for (const word of words) {
     if (!STOP_WORDS.has(word) && word.length > 2) {
       wordFreq[word] = (wordFreq[word] || 0) + 1;
     }
-  });
+  }
 
-  // 2. Score sentences based on word frequency
   const sentenceScores = sentences.map((sentence, index) => {
-    const sWords = sentence.toLowerCase().match(/\b(\w+)\b/g) || [];
+    const sWords = sentence.toLowerCase().match(/\b\w+\b/g) || [];
     let score = 0;
-    sWords.forEach(word => {
+    for (const word of sWords) {
       if (wordFreq[word]) score += wordFreq[word];
-    });
-    const positionBias = Math.max(0, 1 - (index / sentences.length));
-    score *= (1 + positionBias);
-    return { sentence, score, index };
-  });
-
-
-    // Position bias (sentences at the beginning are often more important)
-    const positionBias = Math.max(0, 1 - (index / sentences.length));
-    score *= (1 + positionBias);
-  // 3. Score sentences based on word importance
-  const sentenceScores = sentences.map((sentence, index) => {
-    const sentenceWords = sentence.toLowerCase().match(/\b\w+\b/g) || [];
-    let score = 0;
-    sentenceWords.forEach(word => {
-      if (wordFreq[word]) {
-        score += wordFreq[word];
-      }
-    });
-
-    // Normalize by length (square root) to favor informative but not excessively long sentences
-    if (sentenceWords.length > 0) {
-        score = score / Math.pow(sentenceWords.length, 0.5);
     }
-
+    if (sWords.length > 0) {
+      score = score / Math.pow(sWords.length, 0.5);
+    }
+    const positionBias = Math.max(0, 1 - index / sentences.length);
+    score *= 1 + positionBias * 0.5;
     return { sentence, score, index };
   });
-
-  // 3. Select top sentences
-  let count = 3;
-  if (length === 'short') count = Math.max(1, Math.floor(sentences.length * 0.1));
-  if (length === 'medium') count = Math.max(3, Math.floor(sentences.length * 0.2));
-  if (length === 'long') count = Math.max(6, Math.floor(sentences.length * 0.4));
-
-  // Cap the count to something reasonable
-  count = Math.min(count, length === 'short' ? 2 : (length === 'medium' ? 5 : 10));
 
   const topSentences = sentenceScores
     .sort((a, b) => b.score - a.score)
-    .slice(0, count)
+    .slice(0, targetCount)
     .sort((a, b) => a.index - b.index)
-    .sort((a, b) => a.index - b.index) // Restore original order
-    .map(s => s.sentence.trim());
+    .map((s) => s.sentence.trim());
 
   if (format === 'bullets') {
-    return topSentences.map(s => `- ${s}`).join('\n');
+    return topSentences.map((s) => `- ${s}`).join('\n');
   }
 
   return topSentences.join(' ');
 }
 
-export function escapeHTML(str: string): string {
-  if (!str) return '';
-  const table: Record<string, string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  };
-  return str.replace(/[&<>"']/g, (tag) => table[tag] || tag);
-}
 
 // --- CONTENT INTELLIGENCE ---
 
@@ -212,19 +131,28 @@ export interface SentimentResult {
   type: 'positive' | 'neutral' | 'negative';
 }
 
+const POSITIVE_WORDS = new Set([
+  'good', 'great', 'excellent', 'amazing', 'happy', 'love', 'wonderful', 'best',
+  'useful', 'easy', 'simple', 'reliable', 'efficient', 'fast', 'secure', 'solid',
+  'pro', 'effective', 'perfect', 'awesome', 'smart', 'clean', 'intuitive',
+]);
+
+const NEGATIVE_WORDS = new Set([
+  'bad', 'poor', 'awful', 'terrible', 'sad', 'hate', 'worst', 'useless', 'hard',
+  'complex', 'broken', 'slow', 'vulnerable', 'clunky', 'ineffective', 'failing',
+  'buggy', 'error', 'wrong', 'horrible', 'mess', 'difficult',
+]);
+
 export function analyzeSentiment(text: string): SentimentResult {
   if (!text) return { score: 0, comparative: 0, type: 'neutral' };
 
-  const positiveWords = new Set(['good', 'great', 'excellent', 'amazing', 'happy', 'love', 'wonderful', 'best', 'useful', 'easy', 'simple', 'reliable', 'efficient', 'fast', 'secure', 'solid', 'pro', 'effective', 'perfect', 'awesome', 'smart', 'clean', 'intuitive']);
-  const negativeWords = new Set(['bad', 'poor', 'awful', 'terrible', 'sad', 'hate', 'worst', 'useless', 'hard', 'complex', 'broken', 'slow', 'vulnerable', 'clunky', 'ineffective', 'failing', 'buggy', 'error', 'wrong', 'horrible', 'mess', 'difficult']);
-
-  const tokens = text.toLowerCase().match(/\b(\w+)\b/g) || [];
+  const tokens = text.toLowerCase().match(/\b\w+\b/g) || [];
   let score = 0;
 
-  tokens.forEach(token => {
-    if (positiveWords.has(token)) score += 1;
-    if (negativeWords.has(token)) score -= 1;
-  });
+  for (const token of tokens) {
+    if (POSITIVE_WORDS.has(token)) score += 1;
+    if (NEGATIVE_WORDS.has(token)) score -= 1;
+  }
 
   const comparative = tokens.length > 0 ? score / tokens.length : 0;
   let type: 'positive' | 'neutral' | 'negative' = 'neutral';
@@ -242,25 +170,27 @@ export interface ReadabilityResult {
 export function calculateReadability(text: string): ReadabilityResult {
   if (!text) return { fleschEase: 0, fleschKincaidGrade: 0 };
 
-  const sentences = text.match(/[^.!?\n]+[.!?\n]+/g) || [text];
-  const words = text.toLowerCase().match(/\b(\w+)\b/g) || [];
+  const sentences = text.match(SENTENCE_TOKENIZER_REGEX) || [text];
+  const words = text.toLowerCase().match(/\b\w+\b/g) || [];
 
-  if (sentences.length === 0 || words.length === 0) return { fleschEase: 0, fleschKincaidGrade: 0 };
+  if (sentences.length === 0 || words.length === 0) {
+    return { fleschEase: 0, fleschKincaidGrade: 0 };
+  }
 
   let syllables = 0;
-  words.forEach(word => {
+  for (const word of words) {
     const vowelMatches = word.match(/[aeiouy]+/g);
     syllables += vowelMatches ? vowelMatches.length : 1;
-  });
+  }
 
   const avgSentenceLength = words.length / sentences.length;
   const avgSyllablesPerWord = syllables / words.length;
-  const fleschEase = 206.835 - (1.015 * avgSentenceLength) - (84.6 * avgSyllablesPerWord);
-  const fleschKincaidGrade = (0.39 * avgSentenceLength) + (11.8 * avgSyllablesPerWord) - 15.59;
+  const fleschEase = 206.835 - 1.015 * avgSentenceLength - 84.6 * avgSyllablesPerWord;
+  const fleschKincaidGrade = 0.39 * avgSentenceLength + 11.8 * avgSyllablesPerWord - 15.59;
 
   return {
     fleschEase: Math.round(fleschEase * 100) / 100,
-    fleschKincaidGrade: Math.round(fleschKincaidGrade * 100) / 100
+    fleschKincaidGrade: Math.round(fleschKincaidGrade * 100) / 100,
   };
 }
 
@@ -274,7 +204,7 @@ export interface EntityExtractionResult {
 export function extractEntities(text: string): EntityExtractionResult {
   if (!text) return { emails: [], phoneNumbers: [], urls: [], dates: [] };
 
-  const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
+  const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
   const phoneRegex = /\b(?:\+?(\d{1,3}))?[-. (]*(\d{3})[-. )]*(\d{3})[-. ]*(\d{4})\b/g;
   const urlRegex = /\bhttps?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/g;
   const dateRegex = /\b(?:\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})|(?:\d{4}[\/-]\d{1,2}[\/-]\d{1,2})\b/g;
@@ -299,7 +229,7 @@ export function generateTableOfContents(markdown: string): TOCItem[] {
   const lines = markdown.split('\n');
   const toc: TOCItem[] = [];
 
-  lines.forEach(line => {
+  for (const line of lines) {
     const match = line.match(/^(#{1,6})\s+(.+)$/);
     if (match) {
       const level = match[1].length;
@@ -307,19 +237,37 @@ export function generateTableOfContents(markdown: string): TOCItem[] {
       const id = text.toLowerCase().replace(/[^\w]+/g, '-');
       toc.push({ level, text, id });
     }
-  });
-
-  return toc;
-  // 4. Sort by score (descending) and pick top N
-  sentenceScores.sort((a, b) => b.score - a.score);
-  const topSentences = sentenceScores.slice(0, sentenceCount);
-
-  // 5. Reorder by original index to maintain flow
-  topSentences.sort((a, b) => a.index - b.index);
-
-  if (format === 'bullets') {
-    return topSentences.map(s => `- ${s.sentence.trim()}`).join('\n');
   }
 
-  return topSentences.map(s => s.sentence.trim()).join(' ');
+  return toc;
+}
+
+const LANGUAGE_STOPWORDS: Record<string, Set<string>> = {
+  English: new Set(['the', 'and', 'is', 'in', 'to', 'of', 'a', 'for', 'on', 'with', 'over']),
+  Spanish: new Set(['el', 'la', 'los', 'las', 'de', 'y', 'en', 'un', 'una', 'sobre', 'por']),
+  French: new Set(['le', 'la', 'les', 'de', 'et', 'en', 'un', 'une', 'pour', 'sur', 'dans']),
+  German: new Set(['der', 'die', 'das', 'und', 'in', 'zu', 'den', 'von', 'mit', 'auf']),
+  Italian: new Set(['il', 'lo', 'la', 'i', 'gli', 'le', 'di', 'e', 'in', 'un', 'una', 'con']),
+};
+
+export function detectLanguage(text: string): string {
+  if (!text) return 'English';
+  const tokens = text.toLowerCase().match(/\b[a-záéíóúüñàèìòùâêîôûäöß]+\b/g) || [];
+  if (tokens.length === 0) return 'English';
+
+  let bestLang = 'English';
+  let bestScore = 0;
+
+  for (const [lang, stopSet] of Object.entries(LANGUAGE_STOPWORDS)) {
+    let score = 0;
+    for (const token of tokens) {
+      if (stopSet.has(token)) score++;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestLang = lang;
+    }
+  }
+
+  return bestScore > 0 ? bestLang : 'English';
 }

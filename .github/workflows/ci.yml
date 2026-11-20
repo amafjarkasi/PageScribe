@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify WXT generated types
+        run: test -f .wxt/tsconfig.json
+
+      - name: Typecheck
+        run: bun run compile
+
+      - name: Run unit tests
+        run: bun run test
+
+      - name: Build extension
+        run: bun run build
+
+      - name: Verify build output
+        run: |
+          test -f .output/chrome-mv3/manifest.json
+          test -f .output/chrome-mv3/background.js
+          test -f .output/chrome-mv3/content-scripts/content.js
+          test -f .output/chrome-mv3/offscreen.html
+          test -f .output/chrome-mv3/sidepanel.html

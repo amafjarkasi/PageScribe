@@ -1,6 +1,6 @@
 {
   "name": "pagescribe",
-  "description": "A powerful web content extraction and crawling tool.",
+  "description": "Manifest V3 Chrome extension for clean web-to-Markdown clipping, Obsidian export, PDF parsing, AI Q&A, and polite multi-page crawling.",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,7 +12,8 @@
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "compile": "tsc --noEmit",
-    "test": "bun test",
+    "test": "bun test tests utils",
+    "test:e2e": "playwright test",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
@@ -22,9 +23,11 @@
     "pdfjs-dist": "^5.4.624",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "turndown": "^7.2.0"
+    "turndown": "^7.2.0",
+    "turndown-plugin-gfm": "^1.0.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@types/chrome": "^0.1.22",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.3",
