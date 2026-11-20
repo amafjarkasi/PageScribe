@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="assets/logo.svg" alt="PageScribe — Web to Markdown, Obsidian, and llms-full.md" width="520" />
+  <img src="assets/banner.svg" alt="PageScribe — Web to Markdown, Obsidian, and llms-full.md" width="460" height="92" />
 
-  <br /><br />
+  <h1>PageScribe</h1>
 
   <p>
     <strong>Clip any web page, docs site, or PDF into clean Markdown, Obsidian notes, or an LLM-ready <code>llms-full.md</code> knowledge pack — 100% local-first.</strong>
