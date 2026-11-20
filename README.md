@@ -123,7 +123,7 @@ flowchart LR
 
 ```text
 PageScribe/
-├── assets/logo.svg            # Extension SVG logo lockup
+├── assets/banner.svg          # Extension SVG banner lockup
 ├── entrypoints/
 │   ├── background.ts          # MV3 service worker (crawler, commands, context menus, offscreen)
 │   ├── content.ts             # On-demand content script (Readability, Turndown+GFM, highlights)
