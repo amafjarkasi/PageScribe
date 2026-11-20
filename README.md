@@ -14,7 +14,7 @@
     <img src="https://img.shields.io/badge/Manifest-V3-2563EB?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Manifest V3" />
     <img src="https://img.shields.io/badge/WXT-0.20-0EA5E9?style=for-the-badge" alt="WXT" />
     <img src="https://img.shields.io/badge/Service_Worker-155_kB-10B981?style=for-the-badge" alt="155 kB Service Worker" />
-    <img src="https://img.shields.io/badge/Tests-36_Unit_+_E2E-8B5CF6?style=for-the-badge" alt="Tests" />
+    <img src="https://img.shields.io/badge/Tests-42_Unit_+_E2E-8B5CF6?style=for-the-badge" alt="Tests" />
   </p>
 
   <p>
@@ -60,13 +60,12 @@
 ## ⚡ Core Features
 
 ### 1. Web Clipping & Knowledge Export
-- **Clean Article Extraction**: Uses `@mozilla/readability` to strip ads, navbars, and clutter, with automatic fallback to `document.body` on non-article pages.
-- **GFM-Aware Markdown**: Powered by `turndown` + `turndown-plugin-gfm` so tables, task lists, strikethroughs, and fenced code blocks convert cleanly.
-- **Dynamic Clip Templates**: Choose from **Standard Frontmatter**, **Obsidian Research Note**, or **Minimal Clean Markdown**—automatically populating metadata, stats, keywords, summary, and highlights.
-- **One-Click Obsidian Export**: Deep-link clipped notes directly into a configured Obsidian vault (`obsidian://new`).
-- **On-Page Web Highlighter**: Right-click any selection (**PageScribe: Highlight & save quote**) to mark it on the live page (`<mark>`) and automatically append it under `## Highlights` in your exports.
-- **Custom Domain Selector Rules**: Save per-domain CSS `include` (e.g. `main, article.post`) and `exclude` (e.g. `.sidebar, .ads`) selectors.
-- **Bounded Auto-Scroll**: Optionally scrolls lazy-loaded pages before extraction so dynamically rendered sections aren't missed.
+- **Clean Article, AI Chat & YouTube Extraction**: Uses `@mozilla/readability` for articles, site-specific adapters for **ChatGPT, Claude, Gemini, and Perplexity** threads, and timestamped caption/transcript extraction on **YouTube**.
+- **GFM Markdown + LaTeX Math**: Powered by `turndown` + `turndown-plugin-gfm` with pre-Turndown **KaTeX / MathJax / MathML** preservation (`$...$` and `$$...$$`).
+- **Dynamic Clip Templates & Auto-Graph**: Choose from **Standard Frontmatter**, **Obsidian Research Note**, or **Minimal Clean Markdown**—automatically populating `{{tags}}`, `{{wikilinks}}` (matched against history & vault notes), stats, keywords, summary, and highlights.
+- **Flexible Export Targets**: Download `.md`/`.html`, save a **self-contained `.zip` with offline images**, write directly to a **Local Folder** (File System Access API), send straight to **Obsidian** (`obsidian://new`), or **Clip All Window Tabs** into a single `research_session_llms-full.md`.
+- **On-Page Highlighter & Reader Mode**: Right-click selections to highlight (`<mark>`), or toggle the distraction-free **Reader Mode** overlay with font controls and `speechSynthesis` **Read-Aloud**.
+- **Custom Domain Selector Rules & Auto-Scroll**: Save per-domain CSS `include`/`exclude` selectors and optionally auto-scroll lazy-loaded pages.
 
 <details>
 <summary><strong>Supported Template Variables</strong> (click to expand)</summary>
@@ -90,11 +89,12 @@
 
 </details>
 
-### 2. Polite Multi-Page Crawler
+### 2. Polite Multi-Page Crawler & Change Watcher
 - **`robots.txt` Compliance**: Fetches and caches `User-agent: *` `Allow`/`Disallow` rules per origin (enabled by default).
+- **Sitemap & RSS/Atom Discovery**: Auto-discover URLs from `/sitemap.xml`, `/rss.xml`, `/feed.xml`, or `/atom.xml` right from the Crawl tab.
 - **Concurrent Worker Pool**: Run 1–3 background tab workers with configurable depth, max pages, request delay, domain lock, and regex URL exclusions.
 - **Live Progress & Selective Export**: Inspect `success` / `failed` / `skipped` statuses in real time, check/uncheck crawled pages, and export to **JSON**, **CSV**, or **`llms-full.md`**.
-- **Resilient Lifecycle**: Waits for tab load completion (`tabs.onUpdated`), supports mid-crawl **Stop**, and resets state cleanly on service worker restart.
+- **Page Change Watcher (`chrome.alarms`)**: Pin URLs to periodically check for content diffs (`+added / -removed` lines) with desktop notifications.
 
 ### 3. Content Intelligence & Optional AI
 - **Offline (Default)**: Weighted TF-IDF summarization (`short`/`medium`/`long`, paragraph or bullets), ranked keywords (`keyword-extractor`), sentiment polarity, Flesch-Kincaid readability, entity extraction (emails, phones, URLs), Markdown TOC, and 5-language detection.
@@ -133,12 +133,18 @@ PageScribe/
 ├── utils/
 │   ├── content.ts             # Stats, TF-IDF summary, sentiment, readability, entities, TOC, language
 │   ├── dom.ts                 # sanitizeHTML, escapeHTML, parseDOMMetadata
+│   ├── extractors.ts          # AI chat adapters, YouTube transcripts, KaTeX/MathML preservation
+│   ├── feeds.ts               # Sitemap.xml & RSS/Atom feed discovery
+│   ├── graph.ts               # Auto-tagging & [[WikiLink]] graph suggester
 │   ├── highlights.ts          # Highlight URL normalization and Markdown formatting
 │   ├── llm.ts                 # Offline, Chrome AI, and OpenAI-compatible summarization & Q&A
+│   ├── localFolder.ts         # File System Access API + IndexedDB directory handle persistence
 │   ├── robots.ts              # robots.txt parser and matcher
 │   ├── rules.ts               # Domain CSS selector rule matching
-│   └── templates.ts           # Dynamic clip templates and obsidian:// URI builder
-├── tests/                     # Bun unit tests (36 tests)
+│   ├── templates.ts           # Dynamic clip templates and obsidian:// URI builder
+│   ├── watcher.ts             # Page change watcher & line-diff engine
+│   └── zip.ts                 # Pure-TS ZIP builder & offline image bundler
+├── tests/                     # Bun unit tests (42 tests)
 ├── e2e/                       # Playwright Chromium extension smoke tests
 └── wxt.config.ts              # WXT & MV3 manifest configuration
 ```

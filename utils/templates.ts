@@ -15,6 +15,8 @@ export interface TemplateVariables {
   wordCount: number;
   readingTime: number;
   keywords: string;
+  tags?: string;
+  wikilinks?: string;
   summary: string;
   highlights: string;
   content: string;
@@ -49,7 +51,7 @@ published: "{{date}}"
 clipped: "{{clippedDate}}"
 language: "{{language}}"
 words: {{wordCount}}
-tags: [clipped, pagescribe]
+tags: [{{tags}}]
 ---
 
 # {{title}}
@@ -57,7 +59,7 @@ tags: [clipped, pagescribe]
 > **Summary:** {{summary}}
 
 **Keywords:** {{keywords}}
-
+{{wikilinks}}
 {{highlights}}
 ## Content
 
@@ -88,6 +90,8 @@ export function renderTemplate(templateBody: string, vars: TemplateVariables): s
     wordCount: String(vars.wordCount ?? 0),
     readingTime: String(vars.readingTime ?? 0),
     keywords: vars.keywords || '',
+    tags: vars.tags || 'clipped, pagescribe',
+    wikilinks: vars.wikilinks ? `\n**Related Notes:** ${vars.wikilinks}\n` : '',
     summary: vars.summary || '',
     highlights: vars.highlights ? `## Highlights\n\n${vars.highlights}\n` : '',
     content: vars.content || '',

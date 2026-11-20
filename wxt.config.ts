@@ -21,6 +21,8 @@ export default defineConfig({
       'offscreen',
       'sidePanel',
       'contextMenus',
+      'alarms',
+      'notifications',
     ],
     side_panel: {
       default_path: 'sidepanel.html',

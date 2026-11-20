@@ -4,9 +4,11 @@ import { DEFAULT_AI_CONFIG, type AIConfig, type AIProvider } from '../../utils/l
 import { normalizeDomain, parseSelectorList, type SelectorRule } from '../../utils/rules';
 import { BUILTIN_TEMPLATES, buildObsidianUri } from '../../utils/templates';
 import { normalizeHighlightUrl, type PageHighlight } from '../../utils/highlights';
+import { pickLocalFolder, writeMarkdownToSavedFolder } from '../../utils/localFolder';
+import type { WatchedPage } from '../../utils/watcher';
 import './App.css';
 
-type Action = 'save' | 'obsidian' | 'preview' | 'keywords' | 'stats' | 'summarize' | 'ask';
+type Action = 'save' | 'saveFolder' | 'saveZip' | 'obsidian' | 'preview' | 'keywords' | 'stats' | 'summarize' | 'ask';
 type PdfAction = 'summarize' | 'keywords' | 'ask';
 type ExportFormat = 'markdown' | 'html';
 type ActiveTab = 'page' | 'pdf' | 'crawl' | 'history' | 'analysis';
@@ -125,6 +127,9 @@ function App({ isSidePanel = false }: { isSidePanel?: boolean }) {
   const [obsidianVault, setObsidianVault] = useState('');
   const [pageHighlights, setPageHighlights] = useState<PageHighlight[]>([]);
   const [currentTabUrl, setCurrentTabUrl] = useState('');
+  const [knownVaultNotes, setKnownVaultNotes] = useState('');
+  const [discoveredFeeds, setDiscoveredFeeds] = useState<{ url: string; title?: string }[]>([]);
+  const [watchedPages, setWatchedPages] = useState<WatchedPage[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>('page');
   const [searchQuery, setSearchQuery] = useState('');
@@ -205,6 +210,8 @@ function App({ isSidePanel = false }: { isSidePanel?: boolean }) {
         selectorRules: [],
         aiConfig: DEFAULT_AI_CONFIG,
         pageHighlights: [],
+        knownVaultNotes: [],
+        watchedPages: [],
         prefs: {},
       },
       (res) => {
@@ -223,6 +230,8 @@ function App({ isSidePanel = false }: { isSidePanel?: boolean }) {
         setSelectorRules((res.selectorRules as SelectorRule[]) || []);
         setAiConfig({ ...DEFAULT_AI_CONFIG, ...(res.aiConfig as Partial<AIConfig>) });
         setPageHighlights((res.pageHighlights as PageHighlight[]) || []);
+        setKnownVaultNotes(((res.knownVaultNotes as string[]) || []).join(', '));
+        setWatchedPages((res.watchedPages as WatchedPage[]) || []);
         const prefs = (res.prefs || {}) as Record<string, any>;
         if (prefs.exportFormat) setExportFormat(prefs.exportFormat);
         if (prefs.summaryLength) setSummaryLength(prefs.summaryLength);
@@ -333,6 +342,30 @@ function App({ isSidePanel = false }: { isSidePanel?: boolean }) {
         } else {
           setResult(qaRes?.result || '');
           setStatus(`Answer ready (${qaRes?.usedProvider || 'offline'}).`);
+        }
+        return;
+      }
+
+      if (action === 'saveFolder') {
+        const rendered = await chrome.runtime.sendMessage({
+          action: 'processContent',
+          type: 'renderMarkdown',
+          title: response.title,
+          markdown: response.markdown,
+          content: response.content,
+          author: response.author,
+          publishedTime: response.publishedTime,
+          siteName: response.siteName,
+          description: response.description,
+          url: tab.url,
+          templateId: activeTemplateId,
+        });
+        if (rendered?.result) {
+          const cleanName = (response.title || 'page').replace(/[\\/:*?"<>|]/g, '_').slice(0, 100);
+          const savedPath = await writeMarkdownToSavedFolder(cleanName, rendered.result);
+          setStatus(`Saved directly to ${savedPath}`);
+        } else {
+          setStatus('Failed to render Markdown.');
         }
         return;
       }
@@ -544,6 +577,71 @@ function App({ isSidePanel = false }: { isSidePanel?: boolean }) {
     }
   };
 
+  const handleToggleReader = async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return;
+      const res = await chrome.runtime.sendMessage({ action: 'toggleReaderMode', tabId: tab.id });
+      setStatus(res?.active ? 'Reader Mode enabled.' : 'Reader Mode closed.');
+    } catch (err) {
+      setStatus(`Reader error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleClipAllTabs = async () => {
+    setLoading(true);
+    setStatus('Bundling all open tabs in window...');
+    try {
+      const res = await chrome.runtime.sendMessage({ action: 'clipAllWindowTabs' });
+      setStatus(res?.error ? `Error: ${res.error}` : res?.result || 'Done.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDiscoverFeeds = async () => {
+    setStatus('Discovering sitemap / RSS feeds...');
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.url || !/^https?:/i.test(tab.url)) {
+        setStatus('Open an HTTP/HTTPS page first.');
+        return;
+      }
+      const res = await chrome.runtime.sendMessage({ action: 'discoverFeeds', url: tab.url });
+      const urls = (res?.urls as { url: string; title?: string }[]) || [];
+      setDiscoveredFeeds(urls);
+      setStatus(`Discovered ${urls.length} URLs from sitemap/RSS.`);
+    } catch (err) {
+      setStatus(`Discovery error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleWatchCurrentPage = async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.url || !/^https?:/i.test(tab.url)) {
+        setStatus('Open an HTTP/HTTPS page to watch.');
+        return;
+      }
+      const res = await chrome.runtime.sendMessage({
+        action: 'watchPage',
+        url: tab.url,
+        title: tab.title || tab.url,
+      });
+      if (res?.watchedPages) setWatchedPages(res.watchedPages);
+      if (res?.result) setStatus(res.result);
+    } catch (err) {
+      setStatus(`Watch error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleCheckWatched = async () => {
+    setStatus('Checking watched pages for diffs...');
+    const res = await chrome.runtime.sendMessage({ action: 'checkWatchedPages' });
+    if (res?.watchedPages) setWatchedPages(res.watchedPages);
+    setStatus('Watched pages checked.');
+  };
+
   const stopCrawl = async () => {
     try {
       await chrome.runtime.sendMessage({ action: 'stopCrawl' });
@@ -739,6 +837,20 @@ function App({ isSidePanel = false }: { isSidePanel?: boolean }) {
               </div>
             </>
           )}
+          <div className="form-group" style={{ marginTop: '8px' }}>
+            <label htmlFor="vault-notes">Known Vault Notes (for [[WikiLinks]])</label>
+            <input
+              id="vault-notes"
+              type="text"
+              placeholder="e.g. RAG Architecture, Obsidian, TypeScript"
+              value={knownVaultNotes}
+              onChange={(e) => {
+                setKnownVaultNotes(e.target.value);
+                const list = e.target.value.split(',').map((s) => s.trim()).filter(Boolean);
+                chrome.storage.local.set({ knownVaultNotes: list });
+              }}
+            />
+          </div>
         </div>
       )}
 
@@ -756,6 +868,8 @@ function App({ isSidePanel = false }: { isSidePanel?: boolean }) {
             <label htmlFor="action-select">Action</label>
             <select id="action-select" value={action} onChange={(e) => setAction(e.target.value as Action)}>
               <option value="save">Save Full Content</option>
+              <option value="saveFolder">Save to Local Folder</option>
+              <option value="saveZip">Save Archive (.zip + Images)</option>
               <option value="obsidian">Send to Obsidian</option>
               <option value="preview">Preview Content</option>
               <option value="keywords">Extract Keywords</option>
@@ -764,7 +878,7 @@ function App({ isSidePanel = false }: { isSidePanel?: boolean }) {
               <option value="ask">Ask AI / Q&amp;A</option>
             </select>
           </div>
-          {(action === 'save' || action === 'obsidian') && (
+          {(action === 'save' || action === 'saveFolder' || action === 'saveZip' || action === 'obsidian') && (
             <div className="form-group">
               <label htmlFor="template-select">Clip Template</label>
               <select
@@ -843,6 +957,24 @@ function App({ isSidePanel = false }: { isSidePanel?: boolean }) {
               </div>
             </>
           )}
+          {action === 'saveFolder' && (
+            <div style={{ marginBottom: '10px' }}>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={async () => {
+                  try {
+                    const h = await pickLocalFolder();
+                    setStatus(`Linked folder: ${h.name}`);
+                  } catch (err) {
+                    setStatus(`Folder error: ${err instanceof Error ? err.message : String(err)}`);
+                  }
+                }}
+              >
+                Choose Local Folder
+              </button>
+            </div>
+          )}
           {(action === 'save' || action === 'preview') && (
             <div className="form-group">
               <label htmlFor="export-format">Export Format</label>
@@ -902,6 +1034,15 @@ function App({ isSidePanel = false }: { isSidePanel?: boolean }) {
           <button className="primary-button" onClick={handlePageAction} disabled={loading || isCrawling}>
             {loading ? 'Processing...' : 'Go'}
           </button>
+
+          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+            <button type="button" className="secondary-button" onClick={handleToggleReader} style={{ flex: 1 }}>
+              Reader Mode
+            </button>
+            <button type="button" className="secondary-button" onClick={handleClipAllTabs} disabled={loading} style={{ flex: 1 }}>
+              Clip All Tabs
+            </button>
+          </div>
 
           {(() => {
             const normUrl = normalizeHighlightUrl(currentTabUrl);
@@ -1146,6 +1287,58 @@ function App({ isSidePanel = false }: { isSidePanel?: boolean }) {
               </button>
             )}
           </div>
+
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+            <button type="button" className="secondary-button" onClick={handleDiscoverFeeds} style={{ flex: 1 }}>
+              Discover Sitemap/RSS
+            </button>
+            <button type="button" className="secondary-button" onClick={handleWatchCurrentPage} style={{ flex: 1 }}>
+              Watch Page
+            </button>
+          </div>
+
+          {discoveredFeeds.length > 0 && (
+            <div className="crawl-results-panel">
+              <strong style={{ fontSize: '12px' }}>Discovered URLs ({discoveredFeeds.length})</strong>
+              <div className="crawl-log-list">
+                {discoveredFeeds.slice(0, 50).map((f) => (
+                  <div key={f.url} className="crawl-log-item" style={{ fontSize: '11px' }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.url}>
+                      {f.title || f.url}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {watchedPages.length > 0 && (
+            <div className="crawl-results-panel">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <strong style={{ fontSize: '12px' }}>Watched Pages ({watchedPages.length})</strong>
+                <button type="button" className="text-button" onClick={handleCheckWatched}>Check Now</button>
+              </div>
+              <div className="crawl-log-list">
+                {watchedPages.map((w) => (
+                  <div key={w.url} className="crawl-log-item" style={{ fontSize: '11px' }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={w.lastDiffSummary}>
+                      {w.hasUnreadChange ? '● ' : ''}{w.title} ({w.lastDiffSummary})
+                    </span>
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={async () => {
+                        const res = await chrome.runtime.sendMessage({ action: 'unwatchPage', url: w.url });
+                        if (res?.watchedPages) setWatchedPages(res.watchedPages);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {crawlLog.length > 0 && (
             <div className="crawl-results-panel">

@@ -34,6 +34,14 @@ import {
   normalizeHighlightUrl,
   type PageHighlight,
 } from '../utils/highlights';
+import { discoverSiteUrls } from '../utils/feeds';
+import { bundleMarkdownWithImages } from '../utils/zip';
+import { suggestTagsAndWikiLinks } from '../utils/graph';
+import {
+  computeLineDiff,
+  stripHtmlToComparableText,
+  type WatchedPage,
+} from '../utils/watcher';
 
 interface HistoryItem {
   type: 'keywords' | 'summarize' | 'qa';
@@ -80,14 +88,17 @@ function formatStatsResult(stats: ContentStats): string {
   return `Word count: ${stats.wordCount.toLocaleString()}, Reading time: ${stats.readingTime} minutes`;
 }
 
-function stringToDataUrl(content: string, mimeType: string): string {
-  const bytes = new TextEncoder().encode(content);
+function bytesToDataUrl(bytes: Uint8Array, mimeType: string): string {
   const chunkSize = 0x8000;
   let binary = '';
   for (let i = 0; i < bytes.length; i += chunkSize) {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
   }
-  return `data:${mimeType};charset=utf-8;base64,${btoa(binary)}`;
+  return `data:${mimeType};base64,${btoa(binary)}`;
+}
+
+function stringToDataUrl(content: string, mimeType: string): string {
+  return bytesToDataUrl(new TextEncoder().encode(content), `${mimeType};charset=utf-8`);
 }
 
 function generateFrontmatter(fields: {
@@ -384,9 +395,25 @@ async function buildTemplatedMarkdown(params: {
   const summary = templateBody.includes('{{summary}}')
     ? summarizeContent(params.content, 'short')
     : '';
-  const keywords = templateBody.includes('{{keywords}}')
-    ? extractRankedKeywords(params.content, 8)
-    : '';
+  const keywords =
+    templateBody.includes('{{keywords}}') || templateBody.includes('{{tags}}')
+      ? extractRankedKeywords(params.content, 8)
+      : '';
+
+  let tags = 'clipped, pagescribe';
+  let wikilinks = '';
+  if (templateBody.includes('{{tags}}') || templateBody.includes('{{wikilinks}}')) {
+    const graphStore = await chrome.storage.local.get({ history: [], knownVaultNotes: [] });
+    const historyTitles = ((graphStore.history as HistoryItem[]) || []).map((h) => h.title);
+    const vaultNotes = (graphStore.knownVaultNotes as string[]) || [];
+    const graph = suggestTagsAndWikiLinks(
+      keywords ? keywords.split(',').map((k) => k.trim()) : [],
+      params.content,
+      [...vaultNotes, ...historyTitles]
+    );
+    if (graph.tags.length > 0) tags = graph.tags.join(', ');
+    if (graph.wikiLinks.length > 0) wikilinks = graph.wikiLinks.join(' ');
+  }
 
   return renderTemplate(templateBody, {
     title: params.title,
@@ -399,6 +426,8 @@ async function buildTemplatedMarkdown(params: {
     wordCount: stats.wordCount,
     readingTime: stats.readingTime,
     keywords,
+    tags,
+    wikilinks,
     summary,
     highlights: highlightsMd,
     content: params.content,
@@ -646,9 +675,55 @@ export default defineBackground(() => {
     chrome.storage.local.set({ isCrawling: false, crawlProgress: null }).catch(() => {});
   };
 
+  async function runWatchedPagesCheck(): Promise<WatchedPage[]> {
+    const res = await chrome.storage.local.get({ watchedPages: [] });
+    const watched = (res.watchedPages as WatchedPage[]) || [];
+    if (watched.length === 0) return [];
+
+    const updated: WatchedPage[] = [];
+    for (const item of watched) {
+      try {
+        const resp = await fetch(item.url);
+        if (resp.ok) {
+          const html = await resp.text();
+          const comparable = stripHtmlToComparableText(html);
+          const diff = computeLineDiff(item.lastSnapshot, comparable);
+          if (diff.changed) {
+            chrome.notifications?.create?.({
+              type: 'basic',
+              iconUrl: 'icon/128.png',
+              title: `PageScribe: ${item.title} changed`,
+              message: diff.summary,
+            });
+          }
+          updated.push({
+            ...item,
+            lastChecked: Date.now(),
+            lastSnapshot: comparable,
+            lastDiffSummary: diff.summary,
+            hasUnreadChange: diff.changed || item.hasUnreadChange,
+          });
+          continue;
+        }
+      } catch {
+        // Keep previous snapshot if fetch fails
+      }
+      updated.push({ ...item, lastChecked: Date.now() });
+    }
+    await chrome.storage.local.set({ watchedPages: updated });
+    return updated;
+  }
+
+  chrome.alarms?.onAlarm?.addListener((alarm) => {
+    if (alarm.name === 'pagescribe-watcher') {
+      runWatchedPagesCheck().catch((err) => console.error('Watcher alarm error:', err));
+    }
+  });
+
   chrome.runtime.onStartup.addListener(resetCrawlState);
   chrome.runtime.onInstalled.addListener(() => {
     resetCrawlState();
+    chrome.alarms?.create?.('pagescribe-watcher', { periodInMinutes: 60 });
 
     chrome.contextMenus.removeAll(() => {
       chrome.contextMenus.create({
@@ -832,6 +907,26 @@ export default defineBackground(() => {
               customTemplateBody: request.customTemplateBody,
             });
             sendResponse({ result: rendered });
+          } else if (type === 'saveZip') {
+            const safeTitle = sanitizeFilename(title);
+            const rendered = await buildTemplatedMarkdown({
+              title,
+              url: url || sender.tab?.url || '',
+              author,
+              publishedTime,
+              siteName,
+              description,
+              content,
+              templateId: request.templateId,
+              customTemplateBody: request.customTemplateBody,
+            });
+            const zipBytes = await bundleMarkdownWithImages(rendered, safeTitle);
+            await chrome.downloads.download({
+              url: bytesToDataUrl(zipBytes, 'application/zip'),
+              filename: `${safeTitle}.zip`,
+              saveAs: true,
+            });
+            sendResponse({ result: `Saved self-contained archive ${safeTitle}.zip` });
           } else if (type === 'stats') {
             const stats = calculateContentStats(content);
             sendResponse({ result: formatStatsResult(stats), stats });
@@ -929,6 +1024,83 @@ export default defineBackground(() => {
             request.format === 'csv' ? 'csv' : request.format === 'llms' ? 'llms' : 'json';
           await downloadCrawlData(items, format);
           sendResponse({ result: `Exported ${items.length} pages as ${format.toUpperCase()}.` });
+        } else if (request.action === 'toggleReaderMode') {
+          const res = await sendMessageToTabWithFallback(request.tabId, {
+            action: 'toggleReaderMode',
+          });
+          sendResponse(res);
+        } else if (request.action === 'discoverFeeds') {
+          const origin = new URL(request.url).origin;
+          const urls = await discoverSiteUrls(origin);
+          sendResponse({ urls });
+        } else if (request.action === 'clipAllWindowTabs') {
+          const tabs = await chrome.tabs.query({ currentWindow: true });
+          const httpTabs = tabs.filter((t) => t.id !== undefined && t.url && /^https?:/i.test(t.url));
+          const bundled: CrawledData[] = [];
+          for (const t of httpTabs) {
+            try {
+              const extracted = await sendMessageToTabWithFallback(t.id!, {
+                action: 'extractContent',
+                autoScroll: false,
+              });
+              if (extracted && (extracted.markdown || extracted.content)) {
+                const text = extracted.markdown || extracted.content || '';
+                const stats = calculateContentStats(text);
+                bundled.push({
+                  url: t.url!,
+                  title: extracted.title || t.title || 'Untitled',
+                  author: extracted.author,
+                  publishedTime: extracted.publishedTime,
+                  siteName: extracted.siteName,
+                  description: extracted.description,
+                  content: text,
+                  wordCount: stats.wordCount,
+                });
+              }
+            } catch {
+              // Skip tabs that cannot be scripted
+            }
+          }
+          if (bundled.length === 0) {
+            sendResponse({ error: 'No extractable HTTP(S) tabs found in current window.' });
+            return;
+          }
+          const pack = generateLlmsFullMarkdown(bundled);
+          await chrome.downloads.download({
+            url: stringToDataUrl(pack, 'text/markdown'),
+            filename: 'research_session_llms-full.md',
+            saveAs: true,
+          });
+          sendResponse({ result: `Bundled ${bundled.length} tabs into research_session_llms-full.md.` });
+        } else if (request.action === 'watchPage') {
+          const url = request.url as string;
+          const title = (request.title as string) || url;
+          const resp = await fetch(url);
+          const html = resp.ok ? await resp.text() : '';
+          const snapshot = stripHtmlToComparableText(html);
+          const res = await chrome.storage.local.get({ watchedPages: [] });
+          const existing = (res.watchedPages as WatchedPage[]) || [];
+          const next: WatchedPage = {
+            url,
+            title,
+            intervalMinutes: 60,
+            lastChecked: Date.now(),
+            lastSnapshot: snapshot,
+            lastDiffSummary: 'Baseline captured',
+            hasUnreadChange: false,
+          };
+          const updated = [next, ...existing.filter((w) => w.url !== url)].slice(0, 50);
+          await chrome.storage.local.set({ watchedPages: updated });
+          sendResponse({ watchedPages: updated, result: `Watching ${title}` });
+        } else if (request.action === 'unwatchPage') {
+          const res = await chrome.storage.local.get({ watchedPages: [] });
+          const existing = (res.watchedPages as WatchedPage[]) || [];
+          const updated = existing.filter((w) => w.url !== request.url);
+          await chrome.storage.local.set({ watchedPages: updated });
+          sendResponse({ watchedPages: updated });
+        } else if (request.action === 'checkWatchedPages') {
+          const updated = await runWatchedPagesCheck();
+          sendResponse({ watchedPages: updated });
         } else {
           sendResponse({ error: `Unknown background action: ${request.action}` });
         }
