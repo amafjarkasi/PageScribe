@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/banner.png" alt="PageScribe — Web to Markdown, Obsidian, and llms-full.md" width="460" height="92" />
+  <img src="assets/pagescribe-banner.png" alt="PageScribe — Web to Markdown, Obsidian, and llms-full.md" width="460" height="92" />
 
   <h1>PageScribe</h1>
 
