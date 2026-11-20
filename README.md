@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/banner.svg" alt="PageScribe — Web to Markdown, Obsidian, and llms-full.md" width="460" height="92" />
+  <img src="assets/banner.png" alt="PageScribe — Web to Markdown, Obsidian, and llms-full.md" width="460" height="92" />
 
   <h1>PageScribe</h1>
 
@@ -37,20 +37,24 @@
     <td width="50%" valign="top">
       <h3>✂️ Clip, Highlight &amp; Send to Obsidian</h3>
       <p>Extract clutter-free articles with <strong>Readability + GFM Markdown</strong> (tables, task lists, fenced code), highlight quotes directly on the page, format with dynamic <code>{{variables}}</code>, and send straight to your vault via <code>obsidian://new</code>.</p>
+      <br />
     </td>
     <td width="50%" valign="top">
       <h3>🕷️ Polite Crawler &amp; <code>llms-full.md</code></h3>
       <p>Crawl docs sites or blogs with <strong><code>robots.txt</code> compliance</strong>, 1–3 concurrent workers, live per-URL logs, and selective export to <strong>JSON</strong>, <strong>CSV</strong>, or a single indexed <strong><code>llms-full.md</code></strong> pack for NotebookLM &amp; Claude Projects.</p>
+      <br />
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
       <h3>🧠 Offline Intelligence &amp; BYOK AI</h3>
       <p>Zero-config <strong>TF-IDF summarization</strong>, ranked keywords, sentiment, Flesch-Kincaid readability, entity extraction, and language detection—plus optional <strong>Chrome Built-in AI</strong> or <strong>OpenAI-compatible</strong> Q&amp;A.</p>
+      <br />
     </td>
     <td width="50%" valign="top">
       <h3>🔒 Hardened MV3 &amp; Offscreen PDF</h3>
       <p>Uses <code>activeTab</code> + on-demand <code>scripting</code> (no install-time <code>&lt;all_urls&gt;</code>), isolates <code>pdfjs-dist</code> in an <strong>Offscreen Document</strong> (<code>~155 kB</code> worker), and sanitizes every HTML byte via a detached DOM shield.</p>
+      <br />
     </td>
   </tr>
 </table>
